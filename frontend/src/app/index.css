@@ -1,0 +1,38 @@
+:root {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Hiragino Sans',
+    'Noto Sans JP', sans-serif;
+
+  /* デザイントークン（色・角丸・影） */
+  --color-text: #1a1a2e;
+  --color-bg: #f4f6fb;
+  --color-surface: #ffffff;
+  --color-border: #d1d5db;
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-secondary: #6b7280;
+  --color-secondary-hover: #4b5563;
+  --color-on-accent: #ffffff;
+  --radius-md: 0.5rem;
+  --radius-lg: 1rem;
+  --shadow-card: 0 10px 30px rgba(17, 24, 39, 0.08);
+  --focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.45);
+
+  color: var(--color-text);
+  background-color: var(--color-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* キーボード操作時のフォーカス可視化（a11y） */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-md);
+}
