@@ -1,0 +1,26 @@
+# 依存
+node_modules/
+
+# ビルド成果物
+dist/
+dist-ssr/
+build/
+
+# TypeScript インクリメンタルビルドのキャッシュ
+*.tsbuildinfo
+
+# Playwright の実行生成物
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# ログ・一時ファイル
+*.log
+*.local
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
