@@ -24,6 +24,9 @@ type API struct {
 	Port        int       // 待ち受けるポート。PORT。既定は 8080。1〜65535
 	DatabaseURL string    // 接続先の DB。DATABASE_URL。必須
 	DevUserID   uuid.UUID // ログイン中の利用者として扱う開発用利用者。DEV_USER_ID。必須（プラン 6章の判断5）
+	// PriceFetchScheduleEnabled は、価格の取得処理を毎日 18:00（日本時間）に実行するか（要件 FR-15）。
+	// PRICE_FETCH_SCHEDULE_ENABLED。既定は true（プラン 4.3）
+	PriceFetchScheduleEnabled bool
 }
 
 // LoadAPI は、cmd/api の設定を読む。
@@ -40,7 +43,31 @@ func LoadAPI() (API, error) {
 	if err != nil {
 		return API{}, err
 	}
-	return API{Port: port, DatabaseURL: databaseURL, DevUserID: devUserID}, nil
+	scheduleEnabled, err := loadPriceFetchScheduleEnabled()
+	if err != nil {
+		return API{}, err
+	}
+	return API{
+		Port:                      port,
+		DatabaseURL:               databaseURL,
+		DevUserID:                 devUserID,
+		PriceFetchScheduleEnabled: scheduleEnabled,
+	}, nil
+}
+
+// loadPriceFetchScheduleEnabled は、PRICE_FETCH_SCHEDULE_ENABLED（価格の取得処理を定時実行するか）を読む。なければ既定の true。
+// E2E の API サーバーは false で起動する（プラン 4.5）。テストの途中で価格が書き換わらないようにするため。
+// strconv.ParseBool で読めない値（"no" など）はエラーにする。既定の true とみなすと、止めたつもりの定時実行が動き続けるため。
+func loadPriceFetchScheduleEnabled() (bool, error) {
+	s := os.Getenv("PRICE_FETCH_SCHEDULE_ENABLED")
+	if s == "" {
+		return true, nil
+	}
+	enabled, err := strconv.ParseBool(s)
+	if err != nil {
+		return false, fmt.Errorf("環境変数 PRICE_FETCH_SCHEDULE_ENABLED は true か false にしてください（PRICE_FETCH_SCHEDULE_ENABLED=%q）", s)
+	}
+	return enabled, nil
 }
 
 // loadPort は、PORT（cmd/api が待ち受けるポート）を読む。なければ既定の 8080。
@@ -62,7 +89,7 @@ func loadPort() (int, error) {
 	return port, nil
 }
 
-// LoadDatabaseURL は、DATABASE_URL（接続先の DB）を読む。cmd/migrate と cmd/api が使う。
+// LoadDatabaseURL は、DATABASE_URL（接続先の DB）を読む。cmd/migrate・cmd/api・cmd/fetch-prices が使う。
 // 既定値を持たないのは、意図しない DB にマイグレーションや seed を流したり、意図しない DB のデータを返したりしないため。
 func LoadDatabaseURL() (string, error) {
 	databaseURL := os.Getenv("DATABASE_URL")

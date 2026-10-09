@@ -111,6 +111,29 @@ tasks:
       - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/api
         silent: true
 
+  prices:fetch:
+    desc: 保有されている全銘柄の終値を取得元（当面はダミー）から取得して保存する（18:00 の定時実行と同じ処理を1回）
+    summary: |
+      マイグレーションを適用してから（db:migrate）、保有されている全銘柄（全利用者の保有データにある銘柄）の終値を
+      取得元から取得し、取引日とともに DATABASE_URL の DB（既定は開発用 DB）に保存する。
+      API サーバー（cmd/api）が毎日 18:00（日本時間）に実行するのと同じ処理を、開発・テスト用に手で1回実行する（要件 FR-15a）。
+      同じ銘柄・同じ取引日の終値がすでにあれば上書きする（何度実行してもよい）。
+      当面の取得元はダミーで、7203・6758 以外の銘柄は「取得できない」になる（保存済みの価格はそのまま残る）。
+      取得・保存できなかった銘柄があっても終了コードは 0（その銘柄はログに出る）。
+      0 以外になるのは、保有データを読めないときや、Ctrl+C で途中で止めたときなど。成否は 0 かどうかで判断する。
+      cmd/fetch-prices 自体はこのとき 1 で終わるが、task は失敗したコマンドの終了コードを既定で 201 にして返す。
+      cmd/fetch-prices の終了コード（1）をそのまま返させるには task -x prices:fetch で実行する。
+    # マイグレーションを先に適用するのは、未適用の DB で実行して、テーブルがないと失敗しないようにするため（backend:dev と同じ）。
+    # db:up は db:migrate の deps にあるので、ここには書かない。
+    deps: [db:migrate]
+    dir: backend
+    cmds:
+      # DATABASE_URL の決め方と渡し方、silent にする理由は db:migrate と同じ。
+      # 呼び出し側の DATABASE_URL（統合テスト AC-14b がテスト用の DB を渡す）を上書きしない（プラン 4.5）。
+      # 接続先（ホスト・ポート・DB 名。パスワードは含めない）は cmd/fetch-prices がログに出す。
+      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/fetch-prices
+        silent: true
+
   backend:test:
     desc: Go の単体・統合テスト（統合テストは TEST_DATABASE_ADMIN_URL の PostgreSQL にテストごとの DB を作る）
     deps: [db:up]

@@ -11,6 +11,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const listHeldStockCodes = `-- name: ListHeldStockCodes :many
+SELECT stock_code
+FROM holdings
+GROUP BY stock_code
+ORDER BY stock_code COLLATE "C"
+`
+
+// 全利用者の保有データにある銘柄コードを、重複なし・昇順で返す。価格の取得処理が、終値を取得する銘柄を決めるために使う（FR-15）。
+// 重複は GROUP BY でまとめる（SELECT DISTINCT だと、ORDER BY に COLLATE を付けた式を書けないため）。
+// 並びは COLLATE "C"（バイト順）にして、Go の文字列比較の昇順（一覧の並び。プラン 4.4「集約の決まり」4）と揃える。
+// DB の既定の照合順序（en_US.utf8）のままだと、例えば 130a が 130A より前に来て食い違うため。
+func (q *Queries) ListHeldStockCodes(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listHeldStockCodes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var stock_code string
+		if err := rows.Scan(&stock_code); err != nil {
+			return nil, err
+		}
+		items = append(items, stock_code)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHoldingRows = `-- name: ListHoldingRows :many
 SELECT
     h.stock_code,

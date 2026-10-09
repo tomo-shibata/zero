@@ -21,3 +21,13 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) AS p ON true
 WHERE h.user_id = sqlc.arg(user_id);
+
+-- name: ListHeldStockCodes :many
+-- 全利用者の保有データにある銘柄コードを、重複なし・昇順で返す。価格の取得処理が、終値を取得する銘柄を決めるために使う（FR-15）。
+-- 重複は GROUP BY でまとめる（SELECT DISTINCT だと、ORDER BY に COLLATE を付けた式を書けないため）。
+-- 並びは COLLATE "C"（バイト順）にして、Go の文字列比較の昇順（一覧の並び。プラン 4.4「集約の決まり」4）と揃える。
+-- DB の既定の照合順序（en_US.utf8）のままだと、例えば 130a が 130A より前に来て食い違うため。
+SELECT stock_code
+FROM holdings
+GROUP BY stock_code
+ORDER BY stock_code COLLATE "C";
