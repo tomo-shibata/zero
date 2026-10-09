@@ -9,8 +9,13 @@ import (
 	"strconv"
 )
 
-// defaultPort は、PORT がないときに cmd/api が待ち受けるポート。
-const defaultPort = 8080
+const (
+	// defaultPort は、PORT がないときに cmd/api が待ち受けるポート。
+	defaultPort = 8080
+	// minPort・maxPort は、PORT に指定できるポート番号の範囲。
+	minPort = 1
+	maxPort = 65535
+)
 
 // API は、cmd/api の設定。
 type API struct {
@@ -26,8 +31,8 @@ func LoadAPI() (API, error) {
 		return API{Port: defaultPort}, nil
 	}
 	port, err := strconv.Atoi(s)
-	if err != nil || port < 1 || port > 65535 {
-		return API{}, fmt.Errorf("環境変数 PORT は 1〜65535 の整数にしてください（PORT=%q）", s)
+	if err != nil || port < minPort || port > maxPort {
+		return API{}, fmt.Errorf("環境変数 PORT は %d〜%d の整数にしてください（PORT=%q）", minPort, maxPort, s)
 	}
 	return API{Port: port}, nil
 }

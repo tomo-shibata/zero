@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/config"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/database"
@@ -83,6 +84,21 @@ func run() error {
 	}
 	defer pool.Close()
 
+	if err := applyMigrations(ctx, pool); err != nil {
+		return err
+	}
+
+	if *seedFile != "" {
+		if err := database.Seed(ctx, pool, seedSQL); err != nil {
+			return err
+		}
+		log.Printf("migrate: seed を流しました: %s", *seedFile)
+	}
+	return nil
+}
+
+// applyMigrations は、pool の DB にマイグレーションを適用し、適用したものをログに出す。
+func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	results, err := database.Migrate(ctx, pool)
 	// 途中で失敗しても、そこまでに適用できたものは残るので出しておく。
 	for _, r := range results {
@@ -93,13 +109,6 @@ func run() error {
 	}
 	if len(results) == 0 {
 		log.Printf("migrate: 適用するマイグレーションはありません")
-	}
-
-	if *seedFile != "" {
-		if err := database.Seed(ctx, pool, seedSQL); err != nil {
-			return err
-		}
-		log.Printf("migrate: seed を流しました: %s", *seedFile)
 	}
 	return nil
 }

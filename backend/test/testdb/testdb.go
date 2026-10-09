@@ -66,18 +66,7 @@ func New(t *testing.T) *pgxpool.Pool {
 	// 小文字にするのは、引用符なしの SQL（DROP DATABASE zero_test_… など）でも手で扱えるようにするため。
 	name := database.TestDatabasePrefix + strings.ToLower(rand.Text())
 	// 接続の設定は DB を作る前に組み立てて確かめる。設定の誤りで、使わない DB を作ってから失敗しないように。
-	connString, err := withDatabase(adminURL, name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 接続数の上限は、接続文字列（pool_max_conns）ではなく設定の構造体で変える。
-	// pool.Config().ConnString() は接続文字列をそのまま返すので、文字列に足すと、それを受け取った別プロセスの
-	// pgx（プールではないもの）が pool_max_conns を PostgreSQL の設定として送ってしまい、接続できないため。
-	poolConfig, err := pgxpool.ParseConfig(connString)
-	if err != nil {
-		t.Fatalf("%s を読めません: %v", adminURLEnv, err)
-	}
-	poolConfig.MaxConns = maxConns
+	poolConfig := newPoolConfig(t, adminURL, name)
 
 	if err := database.CreateDatabase(ctx, admin, name); err != nil {
 		t.Fatalf("テスト用の DB を作れません（PostgreSQL が動いているか確かめてください。task db:up）: %v", err)
@@ -105,6 +94,24 @@ func New(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("テスト用の DB %q: %v", name, err)
 	}
 	return pool
+}
+
+// newPoolConfig は、URL 形式の接続文字列 adminURL の DB 名を name に差し替えた、接続プールの設定を返す。
+func newPoolConfig(t *testing.T, adminURL, name string) *pgxpool.Config {
+	t.Helper()
+	connString, err := withDatabase(adminURL, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 接続数の上限は、接続文字列（pool_max_conns）ではなく設定の構造体で変える。
+	// pool.Config().ConnString() は接続文字列をそのまま返すので、文字列に足すと、それを受け取った別プロセスの
+	// pgx（プールではないもの）が pool_max_conns を PostgreSQL の設定として送ってしまい、接続できないため。
+	poolConfig, err := pgxpool.ParseConfig(connString)
+	if err != nil {
+		t.Fatalf("%s を読めません: %v", adminURLEnv, err)
+	}
+	poolConfig.MaxConns = maxConns
+	return poolConfig
 }
 
 // closePool は、テスト用の DB name への接続プール pool を閉じる。
