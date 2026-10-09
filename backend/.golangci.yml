@@ -1,0 +1,36 @@
+# golangci-lint（v2）の設定。task backend:lint で実行する。
+# バグ・セキュリティ・リソースの閉じ忘れを見つけるものを中心に有効にし、好みの分かれる書き方の linter は入れない。
+# テスト名は日本語の識別子（例: Test基盤_…）なので、ASCII 以外を禁じる linter（asciicheck・gosmopolitan）は入れない。
+version: "2"
+
+linters:
+  default: standard # errcheck・govet・ineffassign・staticcheck・unused
+  enable:
+    - bidichk # ソースの見た目と実際の内容を食い違わせる Unicode の制御文字
+    - bodyclose # HTTP レスポンスの Body の閉じ忘れ
+    - errorlint # %w で包んだエラーを == や型アサーションで比べる誤り
+    - gosec # セキュリティ上の問題
+    - misspell # 英単語のつづり誤り
+    - nilerr # err を確かめた後に nil を返す誤り
+    - noctx # context を渡さない HTTP・DB の呼び出し
+    - rowserrcheck # rows.Err() の確かめ忘れ
+    - sqlclosecheck # rows・stmt の閉じ忘れ
+    - thelper # テストのヘルパーで t.Helper() を呼び忘れる誤り
+    - tparallel # t.Parallel() の付け方の誤り
+    - unconvert # 不要な型変換
+  exclusions:
+    rules:
+      # テストでは httptest.NewRequest でハンドラーを直接呼ぶのが定石で、通信しないので context は要らない。
+      - path: _test\.go
+        linters:
+          - noctx
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      # 標準ライブラリ・外部・このモジュールの順に import をまとめる。
+      local-prefixes:
+        - github.com/tomo-shibata/zero/backend

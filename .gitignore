@@ -26,6 +26,9 @@ playwright/.cache/
 *.pem
 *.key
 
+# 個人のデータを入れた seed（backend/db/seed/*.local.sql。task db:seed SEED_FILE=… で流す）
+*.local.sql
+
 # OS / エディタ
 .DS_Store
 Thumbs.db

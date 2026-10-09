@@ -1,0 +1,135 @@
+# タスクランナー（go-task v3）。task <名前> で実行する（task --list で一覧）。
+# docker・go・npm と、$(go env GOPATH)/bin にある task・sqlc・golangci-lint（v2 系）が PATH にあること。
+#
+# テンプレートの値（{{.…}}）をコマンドに埋め込むときは q（shellQuote）で引用する。
+# 引数や環境変数の値に空白や & ; などがあっても、シェルに解釈させずに1つの値として渡すため。
+version: "3"
+
+vars:
+  # docker-compose.yml の PostgreSQL にある開発用 DB。呼び出し側が DATABASE_URL を渡さないときに使う。
+  # ホストを localhost にしないのは、Windows で先に IPv6 の ::1 に解決され、接続が遅れたり別のサーバーにつながったりするため。
+  DEV_DATABASE_URL: postgres://zero:zero@127.0.0.1:5432/zero?sslmode=disable
+
+tasks:
+  setup:
+    desc: 依存をインストールする（backend・frontend・e2e と、E2E 用のブラウザ）
+    cmds:
+      - cd backend && go mod download
+      - cd frontend && npm ci
+      - cd e2e && npm ci
+      - cd e2e && npx playwright install chromium
+
+  db:up:
+    desc: PostgreSQL のコンテナを起動し、接続を受け付けるまで待つ
+    cmds:
+      - docker compose up -d --wait
+
+  db:migrate:
+    desc: DATABASE_URL の DB（既定は開発用 DB）にマイグレーションを適用する
+    deps: [db:up]
+    dir: backend
+    cmds:
+      # DATABASE_URL は、task の引数 → OS の環境変数 → 開発用 DB の順に決めて、コマンドの前に付けて渡す。
+      # env: で渡さないのは、OS の環境変数があると env: より優先され、引数で渡した DATABASE_URL が黙って無視されるため。
+      # silent にするのは、task がコマンドを端末に出すと、DATABASE_URL のパスワードまで出てしまうため。
+      # 接続先（ホスト・ポート・DB 名。パスワードは含めない）は cmd/migrate がログに出す。
+      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/migrate
+        silent: true
+
+  db:seed:
+    desc: マイグレーションを適用してから SEED_FILE（既定は db/seed/dev.sql）を流す。PR② 以降で使える（dev.sql は PR② で作る）
+    summary: |
+      マイグレーションを適用してから、SEED_FILE の SQL（DML）を DATABASE_URL の DB（既定は開発用 DB）に流す。
+      PR② 以降で使える（既定の db/seed/dev.sql は PR② で作る）。
+      SEED_FILE は backend/ からの相対パス。既定は db/seed/dev.sql。
+      seed には BEGIN・COMMIT を書かない（ファイル全体を1つのトランザクションとして流すため）。
+      自分の保有銘柄などの個人のデータは backend/db/seed/*.local.sql に置く（git 管理外）。
+        例: task db:seed SEED_FILE=db/seed/my.local.sql
+    deps: [db:up]
+    dir: backend
+    vars:
+      SEED_FILE: '{{.SEED_FILE | default "db/seed/dev.sql"}}'
+    cmds:
+      # DATABASE_URL の決め方と渡し方、silent にする理由は db:migrate と同じ。
+      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/migrate -seed {{q .SEED_FILE}}
+        silent: true
+
+  db:clean-test:
+    desc: テストが異常終了して残ったテスト用の DB（名前が zero_test_ か zero_guard_ で始まるもの。zero_guard_ は migrate_recreate_test.go と合わせる）を消す。テストの実行中には流さない
+    summary: |
+      docker-compose.yml の PostgreSQL から、名前が zero_test_ か zero_guard_ で始まる DB だけを消す。
+      開発用 DB（zero）と E2E 用 DB（zero_e2e）は、どちらの名前でも始まらないので消さない。
+      testdb やテストはテストの終了時に DB を消すが、テストのプロセスが異常終了すると消せずに残るため。
+        zero_test_  … testdb が作る DB。zero_test_ は backend/internal/infrastructure/database の TestDatabasePrefix と合わせる。
+        zero_guard_ … -recreate の拒否を確かめるテストが作る使い捨ての DB。zero_guard_ は backend/test/integration/migrate_recreate_test.go と合わせる。
+      テストの実行中には流さない（接続していない間のテスト用 DB を消すことがある）。
+      接続中の DB は消さずに残す。消した DB は「DROP DATABASE IF EXISTS …」と出る。
+    deps: [db:up]
+    # psql が実行する SQL を出す（-e）ので、task のコマンドの表示は省く（同じ SQL が2回出ないように）。
+    silent: true
+    cmds:
+      # LIKE ではなく starts_with で比べるのは、LIKE の _ が任意の1文字に当たり、zero_test_ などで始まらない DB まで消すおそれがあるため。
+      # zero_test_ は backend/internal/infrastructure/database の TestDatabasePrefix と合わせる。
+      # zero_guard_ は backend/test/integration/migrate_recreate_test.go と合わせる（-recreate の拒否を確かめるために、そのテストが作る使い捨ての DB の名前）。
+      # どちらかを変えるときは、ここもあわせて変える（開発用 DB の zero や E2E 用の zero_e2e に当たる名前にはしない）。
+      # DROP DATABASE はトランザクションの中で実行できないので、psql の \gexec で1つずつ実行する。
+      # IF EXISTS にするのは、一覧を作ってから DROP するまでの間に、テストが自分で DB を消していても失敗しないため。
+      - |
+        docker compose exec -T postgres psql -U zero -d postgres -X -q -e -v ON_ERROR_STOP=1 <<'SQL'
+        SELECT format('DROP DATABASE IF EXISTS %I', d.datname)
+        FROM pg_database AS d
+        WHERE (starts_with(d.datname, 'zero_test_') OR starts_with(d.datname, 'zero_guard_'))
+          AND NOT EXISTS (SELECT 1 FROM pg_stat_activity AS a WHERE a.datname = d.datname)
+        ORDER BY d.datname
+        \gexec
+        SQL
+
+  sqlc:
+    desc: db/query/ の SQL から Go のコードを生成する（backend/sqlc.yaml）。PR② 以降で使える（db/query/ は PR② で作る）
+    dir: backend
+    cmds:
+      - sqlc generate
+
+  backend:dev:
+    desc: API サーバーを起動する（127.0.0.1 だけで待ち受ける。ポートは PORT、既定 8080）
+    dir: backend
+    cmds:
+      - go run ./cmd/api
+
+  backend:test:
+    desc: Go の単体・統合テスト（統合テストは TEST_DATABASE_ADMIN_URL の PostgreSQL にテストごとの DB を作る）
+    deps: [db:up]
+    dir: backend
+    cmds:
+      # DB の中身はテスト結果のキャッシュの判定に入らないので、-count=1 でキャッシュを使わず毎回実行する。
+      # -parallel を明示するのは、既定が CPU の数（GOMAXPROCS）で、CPU が1つの環境では並列のサブテストが同時に動けず、
+      # 互いの書き込みを待つテストが時間切れで失敗するため。
+      # 4 にするのは、テストごとの DB への接続（testdb は1つの DB に最大2本）を合わせても、
+      # PostgreSQL の max_connections（既定 100）に十分に収まるようにするため。
+      - go test -count=1 -parallel 4 ./...
+
+  backend:lint:
+    desc: golangci-lint を実行する（backend/.golangci.yml）
+    dir: backend
+    cmds:
+      - golangci-lint run
+
+  frontend:build:
+    desc: フロントエンドを型チェックしてビルドする
+    dir: frontend
+    cmds:
+      - npm run build
+
+  e2e:
+    desc: E2E テスト（Playwright）を実行する
+    dir: e2e
+    cmds:
+      - npx playwright test
+
+  check:
+    desc: その PR の時点で設定済みのチェックをすべて実行する（ステップ5の合否の入口）
+    cmds:
+      - task: backend:lint
+      - task: backend:test
+      - task: frontend:build
+      - task: e2e
