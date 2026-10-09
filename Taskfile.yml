@@ -1,5 +1,6 @@
 # タスクランナー（go-task v3）。task <名前> で実行する（task --list で一覧）。
-# docker・go・npm と、$(go env GOPATH)/bin にある task・sqlc・golangci-lint（v2 系）が PATH にあること。
+# docker・go・npm と、$(go env GOPATH)/bin にある task・sqlc・golangci-lint（v2 系）・govulncheck が PATH にあること。
+# govulncheck は go install golang.org/x/vuln/cmd/govulncheck@latest で入れる。
 #
 # テンプレートの値（{{.…}}）をコマンドに埋め込むときは q（shellQuote）で引用する。
 # 引数や環境変数の値に空白や & ; などがあっても、シェルに解釈させずに1つの値として渡すため。
@@ -114,6 +115,14 @@ tasks:
     cmds:
       - golangci-lint run
 
+  backend:vuln:
+    desc: govulncheck で、依存と Go の標準ライブラリの既知の脆弱性を検査する（実際に呼んでいるものがあれば失敗する）
+    dir: backend
+    cmds:
+      # 標準ライブラリの脆弱性は、go.mod の toolchain で指定した Go の版で判定される。
+      # 見つかったら、修正された版の Go を toolchain に指定するか、依存を上げて直す。
+      - govulncheck ./...
+
   frontend:build:
     desc: フロントエンドを型チェックしてビルドする
     dir: frontend
@@ -130,6 +139,7 @@ tasks:
     desc: その PR の時点で設定済みのチェックをすべて実行する（ステップ5の合否の入口）
     cmds:
       - task: backend:lint
+      - task: backend:vuln
       - task: backend:test
       - task: frontend:build
       - task: e2e
