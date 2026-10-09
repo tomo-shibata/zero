@@ -15,7 +15,6 @@
   --radius-md: 0.5rem;
   --radius-lg: 1rem;
   --shadow-card: 0 10px 30px rgba(17, 24, 39, 0.08);
-  --focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.45);
 
   color: var(--color-text);
   background-color: var(--color-bg);
@@ -30,9 +29,12 @@ body {
   min-height: 100vh;
 }
 
-/* キーボード操作時のフォーカス可視化（a11y） */
+/*
+ * キーボード操作時のフォーカス可視化（a11y）。
+ * box-shadow は Windows のハイコントラスト（forced-colors）で描画されないため outline を使う。
+ * primary 色は白に対して約6.3:1 で、WCAG 1.4.11 の 3:1 を満たす。
+ */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: var(--radius-md);
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
 }
