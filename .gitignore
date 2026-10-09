@@ -24,3 +24,9 @@ playwright/.cache/
 Thumbs.db
 .idea/
 .vscode/
+
+# AI駆動開発関連（ローカルのみで管理）
+.claude/
+CLAUDE.md
+エージェント向けREADME.md
+docs/
