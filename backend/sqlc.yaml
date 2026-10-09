@@ -1,0 +1,12 @@
+# sqlc の設定。スキーマは goose のマイグレーション（Down の部分は sqlc が読み飛ばす）を正とする。
+# クエリ（db/query/）は PR② 以降で足す。
+version: "2"
+sql:
+  - engine: postgresql
+    schema: db/migrations
+    queries: db/query
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/infrastructure/persistence/sqlcgen
+        sql_package: pgx/v5

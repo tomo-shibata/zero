@@ -1,0 +1,27 @@
+# ローカル開発・テスト用の PostgreSQL。
+# 開発用の DB は zero。テストは同じサーバーに zero_test_<ランダム> を作っては消す（backend/test/testdb）。
+# 利用者名・パスワードはこのマシンの中だけで使う開発用の値。外から接続されないよう、127.0.0.1 にだけ公開する。
+services:
+  postgres:
+    # 作業時点（2026-10-09）で取得できる最新のメジャー版。メジャー版を上げるとデータの形式が変わるので、タグで固定する。
+    image: postgres:18
+    environment:
+      POSTGRES_USER: zero
+      POSTGRES_PASSWORD: zero
+      POSTGRES_DB: zero
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # PostgreSQL 18 以降のイメージは、/var/lib/postgresql の下にメジャー版ごとのディレクトリを作る。
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # task db:up（docker compose up --wait）が、接続を受け付けるまで待てるようにする。
+      # -h 127.0.0.1 で TCP を確かめるのは、初回起動の初期化中は一時的なサーバーが Unix ソケットだけで動いているため。
+      # ソケットで確かめると、TCP（ホストからの接続）で待ち受ける前に通ってしまう。
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U zero -d zero"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres-data:
