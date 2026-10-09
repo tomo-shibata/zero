@@ -1,0 +1,3 @@
+# Go のファイルは gofmt が LF を求めるので、Windows（core.autocrlf=true）でも LF で取り出す。
+# CRLF のまま取り出されると、golangci-lint の gofmt の検査で task check が失敗するため。
+*.go text eol=lf
