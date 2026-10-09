@@ -49,10 +49,16 @@ func aggregateStock(rows []dto.HoldingRow) dto.Holding {
 	}
 	// 価格がなければ、現在の価格・基準日・評価額はどれも nil のままにする（要件 FR-10）。
 	// 値を写してから指すのは、返した一覧を書き換えても、呼び出し側の rows が変わらないようにするため。
-	if first.ClosePriceTenths != nil && first.PriceDate != nil {
+	if hasPrice(first) {
 		h.CurrentPriceTenths = new(*first.ClosePriceTenths)
 		h.PriceDate = new(*first.PriceDate)
 		h.Valuation = new(Valuation(*first.ClosePriceTenths, h.Quantity))
 	}
 	return h
+}
+
+// hasPrice は、保有データ r に終値と基準日の両方があるかを返す。銘柄の先頭の行に使うと、評価額を計算する銘柄かが分かる。
+// aggregateStock と sumByStock（checkCalculationRange）で評価額を計算する銘柄をそろえるため、決まりを1か所に置く。
+func hasPrice(r dto.HoldingRow) bool {
+	return r.ClosePriceTenths != nil && r.PriceDate != nil
 }

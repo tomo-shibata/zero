@@ -7,10 +7,13 @@ import "github.com/tomo-shibata/zero/backend/internal/application/query/dto"
 // ここでは桁あふれを確かめない。収まらない保有データは、ListHoldings.Execute が集約の前に
 // checkCalculationRange で見つけてエラーにする（プラン 6章の判断14）。
 
+// tenthsPerYen は、1円が 0.1円単位でいくつか。0.1円単位の値をこれで割ると円になる。
+const tenthsPerYen = 10
+
 // Valuation は、単価 priceTenths（0.1円単位）の株を quantity 株持つときの評価額（円）を返す。
 // 1円未満は切り捨てる（要件 FR-9）。単価と数量は正の数なので、整数の割り算の切り捨てがそのまま使える。
 func Valuation(priceTenths, quantity int64) int64 {
-	return priceTenths * quantity / 10
+	return priceTenths * quantity / tenthsPerYen
 }
 
 // WeightedAverageTenths は、rows の取得価格を保有数量で重み付けした平均（0.1円単位）を返す。

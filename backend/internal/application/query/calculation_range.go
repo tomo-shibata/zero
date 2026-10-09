@@ -62,9 +62,9 @@ func sumByStock(rows []dto.HoldingRow) map[string]*stockSums {
 		s, ok := sums[r.Code]
 		if !ok {
 			s = &stockSums{quantity: new(big.Int), cost: new(big.Int)}
-			// 終値は aggregateStock と同じく、その銘柄の先頭の行に終値と基準日の両方があるときだけ使う。
+			// 終値は aggregateStock と同じく、その銘柄の先頭の行に終値と基準日の両方があるとき（hasPrice）だけ使う。
 			// 評価額を計算する銘柄をそろえないと、計算しない評価額であふれを見つけたり、計算する評価額を見落としたりするため。
-			if r.ClosePriceTenths != nil && r.PriceDate != nil {
+			if hasPrice(r) {
 				s.closeTenths = r.ClosePriceTenths
 			}
 			sums[r.Code] = s
@@ -98,5 +98,5 @@ func (s *stockSums) checkRange() (*big.Int, error) {
 		return nil, fmt.Errorf("評価額の途中の値（終値×保有数量）が %w", errCalculationOverflow)
 	}
 	// Valuation と同じく 0.1円単位から円にし、1円未満を切り捨てる（Quo は Go の / と同じく 0 の方向に切り捨てる）。
-	return product.Quo(product, big.NewInt(10)), nil
+	return product.Quo(product, big.NewInt(tenthsPerYen)), nil
 }
