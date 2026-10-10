@@ -1,0 +1,39 @@
+.holdings-page {
+  display: grid;
+  gap: 1.5rem;
+  align-content: start;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+/*
+ * 読み込み中は、アイコンを画面の中央に置く。
+ * dvh はモバイルのアドレスバーの出し入れに合わせた高さ（100vh だと中央が少しずれる。PR④ ステップ6 の D-7）。
+ * dvh に対応していないブラウザは、先に書いた 100vh を使う。
+ */
+.holdings-page--loading {
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  align-content: center;
+}
+
+.holdings-page__title {
+  /*
+   * 幅を文字に合わせる（grid の既定では横いっぱいに伸びる）。取得失敗のダイアログを閉じた後に見出しへフォーカスを移したとき、
+   * フォーカスの枠が画面の幅いっぱいの箱にならず、見出しの文字を囲むようにするため。
+   */
+  justify-self: start;
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+/* 0件のときのメッセージ。合計の領域（HoldingsTotal.css）と同じカードの見た目にする（PR④ ステップ6 の D-8）。 */
+.holdings-page__empty {
+  margin: 0;
+  padding: 1.5rem 2rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
