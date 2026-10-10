@@ -1,4 +1,5 @@
 // Command api は、HTTP API サーバーを起動する。依存を組み立ててルーターに渡す。
+// あわせて、価格の取得処理を毎日 18:00（日本時間）に実行するスケジューラを起動する（PRICE_FETCH_SCHEDULE_ENABLED が false なら起動しない）。
 package main
 
 import (
@@ -16,11 +17,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tomo-shibata/zero/backend/internal/application/command"
 	"github.com/tomo-shibata/zero/backend/internal/application/query"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/config"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/database"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/read"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/write"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/pricesource"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/router"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/scheduler"
 	"github.com/tomo-shibata/zero/backend/internal/interface/handler"
 )
 
@@ -62,6 +67,13 @@ func run() error {
 	}
 	// サーバーを止めた後（run を抜けるとき）に閉じる。処理中のリクエストが DB を使い終わってから閉じるため。
 	defer pool.Close()
+
+	stopSchedule, err := startPriceFetchSchedule(cfg, pool)
+	if err != nil {
+		return err
+	}
+	// 接続プールを閉じる前に止める（defer は登録と逆の順に動く）。実行中の取得があれば、DB を使い終わるのを待ってから閉じるため。
+	defer stopSchedule()
 
 	// 先に待ち受けを始めてから、実際に待ち受けたアドレスをログに出す。
 	// 待ち受けに失敗した（ポートが使用中など）のに、待ち受けているとログに出ないようにするため。
@@ -120,4 +132,53 @@ func allowedHosts(port int) []string {
 		net.JoinHostPort(listenHost, p),
 		net.JoinHostPort("localhost", p),
 	}
+}
+
+// startPriceFetchSchedule は、設定（PRICE_FETCH_SCHEDULE_ENABLED）で有効なら、価格の取得処理を毎日 18:00（日本時間）に
+// 実行し始める（要件 FR-15、プラン 2章の T-5）。戻り値の stop で止める。無効なら何もせず、何もしない stop を返す。
+func startPriceFetchSchedule(cfg config.API, pool *pgxpool.Pool) (stop func(), err error) {
+	if !cfg.PriceFetchScheduleEnabled {
+		log.Printf("api: 株価取得の定時実行はしません（PRICE_FETCH_SCHEDULE_ENABLED が false）")
+		return func() {}, nil
+	}
+	fetch := newFetchClosingPrices(pool)
+	stop, err = scheduler.Start(func(ctx context.Context) { runScheduledFetch(ctx, fetch) })
+	if err != nil {
+		return nil, fmt.Errorf("株価取得の定時実行を始められません: %w", err)
+	}
+	log.Printf("api: 株価取得を定時実行します（%s）", scheduler.FetchClosingPricesSpec)
+	return stop, nil
+}
+
+// runScheduledFetch は、定時実行で価格の取得処理 fetch を1回実行し、結果をログに出す。
+// 定時実行には結果を返す相手がいないので、ログだけが結果を知る手段になる。
+func runScheduledFetch(ctx context.Context, fetch *command.FetchClosingPrices) {
+	log.Printf("api: 株価取得を始めます")
+	result, err := fetch.Execute(ctx)
+	if err != nil {
+		log.Printf("api: 株価取得に失敗しました: %v", err)
+		return
+	}
+	// 銘柄コードは DB の値で改行などを含みうるので、偽のログ行を作られないよう %q で出す（価格の取得処理のログと同じ）。
+	log.Printf("api: 株価取得が終わりました。保存した銘柄: %q", result.Saved)
+	if len(result.Failed) > 0 {
+		// 失敗の理由は、価格の取得処理が銘柄ごとにログに出している。
+		log.Printf("api: 取得・保存できなかった銘柄（保存済みの価格はそのまま）: %q", result.Failed)
+	}
+	// 時間の上限（プラン 6章の判断18）や API サーバーの停止で取り消されても、Execute はエラーを返さず、
+	// 残りの銘柄を Failed に入れて返す（プラン 4.4「株価取得の決まり」4）。途中で打ち切ったことを1行で分かるようにする。
+	if err := ctx.Err(); err != nil {
+		log.Printf("api: 株価取得を途中で打ち切りました（打ち切った後の銘柄は取得していません）: %v", err)
+	}
+}
+
+// newFetchClosingPrices は、pool の DB を使う価格の取得処理を組み立てる。
+// 取得元を差し替えるときは、ここと cmd/fetch-prices の newFetchClosingPrices の取得元だけを変える（要件 NFR-1、プラン 6章の判断4）。
+// 当面の取得元はダミー（要件 NFR-2）。
+func newFetchClosingPrices(pool *pgxpool.Pool) *command.FetchClosingPrices {
+	return command.NewFetchClosingPrices(
+		pricesource.NewDummyPriceSource(),
+		write.NewHoldingRepository(pool),
+		write.NewClosingPriceRepository(pool),
+	)
 }
