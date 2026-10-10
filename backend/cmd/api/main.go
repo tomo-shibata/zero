@@ -14,8 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tomo-shibata/zero/backend/internal/application/query"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/config"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/database"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/read"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/router"
+	"github.com/tomo-shibata/zero/backend/internal/interface/handler"
 )
 
 const (
@@ -48,6 +54,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// 待ち受けを始める前に DB につながることを確かめる。DB に接続できないまま起動して、
+	// すべてのリクエストに 500 を返し続けるより、起動の時点で失敗した方が原因に気づきやすいため。
+	pool, err := database.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	// サーバーを止めた後（run を抜けるとき）に閉じる。処理中のリクエストが DB を使い終わってから閉じるため。
+	defer pool.Close()
+
 	// 先に待ち受けを始めてから、実際に待ち受けたアドレスをログに出す。
 	// 待ち受けに失敗した（ポートが使用中など）のに、待ち受けているとログに出ないようにするため。
 	var lc net.ListenConfig
@@ -57,7 +72,7 @@ func run() error {
 	}
 
 	srv := &http.Server{
-		Handler:           router.New(router.Deps{}),
+		Handler:           router.New(newDeps(pool, cfg)),
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
 	}
@@ -85,4 +100,24 @@ func run() error {
 		return errors.Join(fmt.Errorf("処理中のリクエストが終わるのを待ちきれません: %w", err), srv.Close())
 	}
 	return nil
+}
+
+// newDeps は、ルーティングが使う依存を組み立てる。
+func newDeps(pool *pgxpool.Pool, cfg config.API) router.Deps {
+	return router.Deps{
+		QueryHandler: handler.NewQueryHandler(query.NewListHoldings(read.NewHoldingsReader(pool))),
+		DevUserID:    cfg.DevUserID,
+		AllowedHosts: allowedHosts(cfg.Port),
+	}
+}
+
+// allowedHosts は、/api/ 以下で受け付ける Host ヘッダーを返す（プラン 6章の判断12）。
+// このサーバーを指す名前（待ち受けている 127.0.0.1 と、ブラウザで開くときの localhost）に、待ち受けるポートを付けたものだけ。
+// ブラウザは既定以外のポートを Host に必ず付けるので、ポートまで含めて比べられる。
+func allowedHosts(port int) []string {
+	p := strconv.Itoa(port)
+	return []string{
+		net.JoinHostPort(listenHost, p),
+		net.JoinHostPort("localhost", p),
+	}
 }

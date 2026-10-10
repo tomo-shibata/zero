@@ -1,5 +1,5 @@
 # sqlc の設定。スキーマは goose のマイグレーション（Down の部分は sqlc が読み飛ばす）を正とする。
-# クエリ（db/query/）は PR② 以降で足す。
+# クエリは db/query/ に置く。生成コード（sqlcgen）は手で書き換えず、task sqlc で作り直す。
 version: "2"
 sql:
   - engine: postgresql

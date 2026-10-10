@@ -38,11 +38,11 @@ tasks:
         silent: true
 
   db:seed:
-    desc: マイグレーションを適用してから SEED_FILE（既定は db/seed/dev.sql）を流す。PR② 以降で使える（dev.sql は PR② で作る）
+    desc: マイグレーションを適用してから SEED_FILE（既定は db/seed/dev.sql）を流す
     summary: |
       マイグレーションを適用してから、SEED_FILE の SQL（DML）を DATABASE_URL の DB（既定は開発用 DB）に流す。
-      PR② 以降で使える（既定の db/seed/dev.sql は PR② で作る）。
-      SEED_FILE は backend/ からの相対パス。既定は db/seed/dev.sql。
+      SEED_FILE は backend/ からの相対パス。既定は db/seed/dev.sql（開発用利用者と、7203・6758 の保有のサンプル）。
+      dev.sql は空の DB に1回だけ流す（2回目は利用者の主キーの重複で失敗し、何も変わらない）。
       seed には BEGIN・COMMIT を書かない（ファイル全体を1つのトランザクションとして流すため）。
       自分の保有銘柄などの個人のデータは backend/db/seed/*.local.sql に置く（git 管理外）。
         例: task db:seed SEED_FILE=db/seed/my.local.sql
@@ -86,16 +86,30 @@ tasks:
         SQL
 
   sqlc:
-    desc: db/query/ の SQL から Go のコードを生成する（backend/sqlc.yaml）。PR② 以降で使える（db/query/ は PR② で作る）
+    desc: db/query/ の SQL から Go のコードを生成する（backend/sqlc.yaml）
     dir: backend
     cmds:
       - sqlc generate
 
   backend:dev:
-    desc: API サーバーを起動する（127.0.0.1 だけで待ち受ける。ポートは PORT、既定 8080）
+    desc: マイグレーションを適用してから API サーバーを起動する（127.0.0.1 だけで待ち受ける。ポートは PORT、既定 8080。80 では /api/ に届かない。DEV_USER_ID は users にある利用者で必須）
+    summary: |
+      マイグレーションを適用してから（db:migrate）、API サーバーを起動する。127.0.0.1 だけで待ち受ける。
+      接続先の DB は DATABASE_URL（既定は開発用 DB）。マイグレーションも同じ DB に適用する。
+      ポートは PORT（既定 8080）。PORT=80 にはしない。ブラウザは HTTP の既定のポート 80 を Host ヘッダーに付けないが、
+      /api/ の Host の許可リストはポート付き（127.0.0.1:80 など）で比べるので、/api/ がすべて 403 になる（/healthz は応答する）。
+      DEV_USER_ID（必須）は、ログイン中の利用者として扱う開発用利用者の UUID。DB の users にある利用者にする
+      （users にない UUID でも起動し、/api/holdings は 0件を返すので、誤りに気づきにくい）。
+      task db:seed で db/seed/dev.sql を流した DB なら、その利用者は次のとおり。
+        例: DEV_USER_ID=00000000-0000-0000-0000-000000000001 task backend:dev
+    # db:up は db:migrate の deps にあるので、ここには書かない（両方に書くと docker compose up が同時に2回動く）。
+    # マイグレーションを先に適用するのは、未適用のまま起動して、リクエストのたびに 500 を返さないようにするため。
+    deps: [db:migrate]
     dir: backend
     cmds:
-      - go run ./cmd/api
+      # DATABASE_URL の決め方と渡し方、silent にする理由は db:migrate と同じ。
+      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/api
+        silent: true
 
   backend:test:
     desc: Go の単体・統合テスト（統合テストは TEST_DATABASE_ADMIN_URL の PostgreSQL にテストごとの DB を作る）
