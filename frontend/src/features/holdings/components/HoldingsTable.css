@@ -1,0 +1,39 @@
+/* 狭い画面では表だけを横にスクロールさせる（ページ全体を横にスクロールさせない）。 */
+.holdings-table__scroll {
+  overflow-x: auto;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.holdings-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.holdings-table__cell {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.holdings-table thead .holdings-table__cell {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+}
+
+.holdings-table tbody tr:last-child .holdings-table__cell {
+  border-bottom: none;
+}
+
+.holdings-table__cell--numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.holdings-table__cell--unavailable {
+  color: var(--color-text-muted);
+}

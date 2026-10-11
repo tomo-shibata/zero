@@ -10,6 +10,13 @@ vars:
   # docker-compose.yml の PostgreSQL にある開発用 DB。呼び出し側が DATABASE_URL を渡さないときに使う。
   # ホストを localhost にしないのは、Windows で先に IPv6 の ::1 に解決され、接続が遅れたり別のサーバーにつながったりするため。
   DEV_DATABASE_URL: postgres://zero:zero@127.0.0.1:5432/zero?sslmode=disable
+  # E2E 用の DB（プラン 4.5）。task e2e:api が起動のたびに作り直す。e2e/fixtures/db.ts の接続先と合わせる。
+  # 呼び出し側の DATABASE_URL では変えない（開発用 DB を作り直したり、E2E のデータを入れ替えたりしないため）。
+  E2E_DATABASE_URL: postgres://zero:zero@127.0.0.1:5432/zero_e2e?sslmode=disable
+  # E2E 用の API のポート。e2e/playwright.config.ts の API_URL と合わせる。
+  E2E_API_PORT: "8081"
+  # E2E の API がログイン中の利用者として扱う利用者A（db/seed/test.sql）。e2e/fixtures/db.ts の USER_A_ID と合わせる。
+  E2E_DEV_USER_ID: 00000000-0000-0000-0000-00000000000a
 
 tasks:
   setup:
@@ -19,6 +26,51 @@ tasks:
       - cd frontend && npm ci
       - cd e2e && npm ci
       - cd e2e && npx playwright install chromium
+
+  dev:
+    desc: 開発環境をまとめて起動する（DB・API・フロントエンド。DEV_USER_ID は必須。例 task dev DEV_USER_ID=00000000-0000-0000-0000-000000000001）
+    summary: |
+      backend:dev（DB の起動とマイグレーションを含む）と frontend:dev を同時に起動する。Ctrl+C で両方止まる。
+      どちらかが失敗して終わったら（DEV_USER_ID がない、ポートが使用中など）、もう一方も止める。
+      DEV_USER_ID などの変数は backend:dev と同じ（task --summary backend:dev）。task の引数でも環境変数でも渡せる。
+        例: task dev DEV_USER_ID=00000000-0000-0000-0000-000000000001
+      画面は http://localhost:5173 で開く（/api は API サーバーに転送される）。
+    # deps は同時に実行されるので、API とフロントエンドの dev サーバーが並んで動く。
+    # task の引数の変数（DEV_USER_ID など）は deps の backend:dev にも渡る。
+    deps: [backend:dev, frontend:dev]
+    # 1つが失敗したら、残りも止める。既定では残りが動き続け、API が起動していないのに画面だけが開けて、
+    # 取得失敗のダイアログの原因が分かりにくくなるため（PR④ ステップ6 の EC-8）。
+    # 止めたプロセスの子が裏に残らないよう、frontend:dev は Vite を直接起動する（frontend:dev のコメント）。
+    # ただし、フロントエンドだけが失敗して終わったとき、Windows では task が止めるのは backend:dev の go run だけで、
+    # go run がビルドして起動した API（api.exe）は裏に残り、ポートをつかんだままになることがある（PR④ ステップ6 2ラウンド目の EC-12）。
+    # そのときは、タスクマネージャーなどで api.exe を止める。次の task dev がポートの使用中で失敗したら、これを疑う。
+    failfast: true
+
+  build:
+    desc: バックエンドとフロントエンドをビルドする
+    cmds:
+      - task: backend:build
+      - task: frontend:build
+
+  test:
+    desc: すべてのテスト（backend の単体・統合、frontend の単体、E2E）を実行する
+    cmds:
+      - task: backend:test
+      - task: frontend:test
+      - task: e2e
+
+  lint:
+    desc: バックエンドとフロントエンドをリントする
+    cmds:
+      - task: backend:lint
+      - task: frontend:lint
+
+  fmt:
+    desc: バックエンドの Go のコードを整形する（golangci-lint の gofmt・goimports。フロントエンドの整形ツールは入れていない）
+    dir: backend
+    cmds:
+      # backend:lint と同じ設定（backend/.golangci.yml の formatters）で整形する。
+      - golangci-lint fmt
 
   db:up:
     desc: PostgreSQL のコンテナを起動し、接続を受け付けるまで待つ
@@ -100,15 +152,19 @@ tasks:
       /api/ の Host の許可リストはポート付き（127.0.0.1:80 など）で比べるので、/api/ がすべて 403 になる（/healthz は応答する）。
       DEV_USER_ID（必須）は、ログイン中の利用者として扱う開発用利用者の UUID。DB の users にある利用者にする
       （users にない UUID でも起動し、/api/holdings は 0件を返すので、誤りに気づきにくい）。
+      DEV_USER_ID は task の引数でも環境変数でも渡せる（task の引数が優先）。
       task db:seed で db/seed/dev.sql を流した DB なら、その利用者は次のとおり。
-        例: DEV_USER_ID=00000000-0000-0000-0000-000000000001 task backend:dev
+        例: task backend:dev DEV_USER_ID=00000000-0000-0000-0000-000000000001
     # db:up は db:migrate の deps にあるので、ここには書かない（両方に書くと docker compose up が同時に2回動く）。
     # マイグレーションを先に適用するのは、未適用のまま起動して、リクエストのたびに 500 を返さないようにするため。
     deps: [db:migrate]
     dir: backend
     cmds:
       # DATABASE_URL の決め方と渡し方、silent にする理由は db:migrate と同じ。
-      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/api
+      # DEV_USER_ID も、task の引数 → OS の環境変数の順に決めて、コマンドの前に付けて渡す（PowerShell などの
+      # 「VAR=値 task …」と書けないシェルからでも、task の引数で渡せるように。PR④ ステップ6 の EC-8）。
+      # どちらもなければ空で渡し、cmd/api が起動時にエラーにする（default "" は、未設定の変数を q に渡すとテンプレートが失敗するため）。
+      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} DEV_USER_ID={{q (.DEV_USER_ID | default "")}} go run ./cmd/api
         silent: true
 
   prices:fetch:
@@ -133,6 +189,12 @@ tasks:
       # 接続先（ホスト・ポート・DB 名。パスワードは含めない）は cmd/fetch-prices がログに出す。
       - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/fetch-prices
         silent: true
+
+  backend:build:
+    desc: Go のコマンド（api・migrate・fetch-prices）をビルドして backend/build/ に置く（build/ は git 管理外）
+    dir: backend
+    cmds:
+      - go build -o build/ ./cmd/...
 
   backend:test:
     desc: Go の単体・統合テスト（統合テストは TEST_DATABASE_ADMIN_URL の PostgreSQL にテストごとの DB を作る）
@@ -160,23 +222,83 @@ tasks:
       # 見つかったら、修正された版の Go を toolchain に指定するか、依存を上げて直す。
       - govulncheck ./...
 
+  frontend:dev:
+    desc: フロントエンドの dev サーバーを起動する（http://localhost:5173。/api は API_PROXY_TARGET、既定 http://127.0.0.1:8080 に転送する）
+    dir: frontend
+    cmds:
+      # npm run dev（frontend/package.json の "dev": "vite"）と同じことを、npm を通さずに行う。
+      # task dev の failfast で止めるとき、Windows では task が止めるのは直接の子のプロセスだけなので、
+      # npm を通すと、その先の Vite が裏に残ってポートをつかんだままになるため（PR④ ステップ6 の EC-8。2026-10-10 に確認）。
+      # package.json の "dev" を変えるときは、ここもあわせて変える。
+      - node node_modules/vite/bin/vite.js
+
   frontend:build:
-    desc: フロントエンドを型チェックしてビルドする
+    desc: フロントエンドを型チェック（src・test）してビルドする
     dir: frontend
     cmds:
       - npm run build
 
+  frontend:test:
+    desc: フロントエンドの単体テスト（Vitest。frontend/test/）を実行する
+    dir: frontend
+    cmds:
+      - npm test
+
+  frontend:lint:
+    desc: フロントエンドを ESLint でリントする（frontend/eslint.config.js）
+    dir: frontend
+    cmds:
+      - npm run lint
+
+  frontend:audit:
+    desc: フロントエンドの npm の依存（devDependencies を含む）の既知の脆弱性を検査する（high 以上があれば失敗する）
+    dir: frontend
+    cmds:
+      # npm のレジストリに問い合わせるので、ネットワークが必要。
+      # 見つかったら npm audit で内容を確かめ、依存を上げて直す（PR④ ステップ6 の S-3）。
+      - npm audit --audit-level=high
+
   e2e:
-    desc: E2E テスト（Playwright）を実行する
+    desc: E2E テスト（Playwright）を実行する（API とフロントエンドの dev サーバーは Playwright が起動する）
     dir: e2e
     cmds:
       - npx playwright test
+
+  e2e:audit:
+    desc: E2E の npm の依存の既知の脆弱性を検査する（high 以上があれば失敗する）
+    dir: e2e
+    cmds:
+      # 理由と直し方は frontend:audit と同じ。
+      - npm audit --audit-level=high
+
+  e2e:api:
+    desc: E2E 用の API サーバーを起動する（zero_e2e を作り直し、利用者A として 127.0.0.1:8081 で待ち受ける。E2E の実行時に Playwright が起動する）
+    summary: |
+      E2E 用の DB zero_e2e を作り直して（マイグレーション → db/seed/test.sql）から、API サーバーを起動する（プラン 4.5）。
+      e2e/playwright.config.ts の webServer が起動し、テストが終わると止める。手で起動する必要はない。
+        - ポートは 8081（開発用の API の 8080 と重ならないように）。
+        - DEV_USER_ID は利用者A（00000000-0000-0000-0000-00000000000a）。E2E のテストは利用者A の保有データを入れる。
+        - 株価取得の定時実行はしない（テストの途中で価格が書き換わらないように）。
+      DATABASE_URL・PORT・DEV_USER_ID は呼び出し側の値を使わず、ここで決めた値で上書きする。
+    deps: [db:up]
+    dir: backend
+    cmds:
+      # DATABASE_URL などをコマンドの前に付けて渡す理由と、silent にする理由は db:migrate と同じ。
+      # -recreate は DB 名が zero_e2e のときだけ動く（cmd/migrate が確かめる）。
+      - cmd: DATABASE_URL={{q .E2E_DATABASE_URL}} go run ./cmd/migrate -recreate -seed db/seed/test.sql
+        silent: true
+      - cmd: DATABASE_URL={{q .E2E_DATABASE_URL}} PORT={{q .E2E_API_PORT}} DEV_USER_ID={{q .E2E_DEV_USER_ID}} PRICE_FETCH_SCHEDULE_ENABLED=false go run ./cmd/api
+        silent: true
 
   check:
     desc: その PR の時点で設定済みのチェックをすべて実行する（ステップ5の合否の入口）
     cmds:
       - task: backend:lint
       - task: backend:vuln
+      - task: frontend:audit
+      - task: e2e:audit
       - task: backend:test
+      - task: frontend:lint
+      - task: frontend:test
       - task: frontend:build
       - task: e2e

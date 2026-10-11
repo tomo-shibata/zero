@@ -1,0 +1,28 @@
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0.25rem solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spinner-rotate 0.8s linear infinite;
+}
+
+/* 動きを減らす設定のときは、回転をゆっくりにする（止めると読み込み中だと分かりにくいため）。 */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ハイコントラスト（forced-colors）では枠の色がすべて同じ色にされ、回転が見えなくなるので、システムの色で区別する。 */
+@media (forced-colors: active) {
+  .spinner {
+    border-top-color: Highlight;
+  }
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}

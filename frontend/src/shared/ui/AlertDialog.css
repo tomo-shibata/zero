@@ -1,0 +1,21 @@
+.alert-dialog {
+  width: calc(100% - 3rem);
+  max-width: 360px;
+  padding: 2rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  /* 通常は見えない枠。ハイコントラスト（forced-colors）では枠の色がシステムの色になり、影の消えたダイアログの境界が見える（PR④ ステップ6 の D-4）。 */
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.alert-dialog::backdrop {
+  background: var(--color-overlay);
+}
+
+.alert-dialog__message {
+  margin: 0 0 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}

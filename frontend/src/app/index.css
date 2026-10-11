@@ -4,6 +4,12 @@
 
   /* デザイントークン（色・角丸・影） */
   --color-text: #1a1a2e;
+  /*
+   * 補助の文字（表の列見出し、ラベル、注記など）の色。
+   * --color-bg に対して約 7.0:1、--color-surface に対して約 7.6:1 で、WCAG 1.4.3 の 4.5:1 を満たす
+   * （--color-secondary は --color-bg に対して約 4.47:1 で 4.5:1 に届かないので、補助の文字には使わない。PR④ ステップ6 の D-1）。
+   */
+  --color-text-muted: #4b5563;
   --color-bg: #f4f6fb;
   --color-surface: #ffffff;
   --color-border: #d1d5db;
@@ -12,6 +18,8 @@
   --color-secondary: #6b7280;
   --color-secondary-hover: #4b5563;
   --color-on-accent: #ffffff;
+  /* モーダルのダイアログの背後を暗くする色（影と同じ色味） */
+  --color-overlay: rgba(17, 24, 39, 0.4);
   --radius-md: 0.5rem;
   --radius-lg: 1rem;
   --shadow-card: 0 10px 30px rgba(17, 24, 39, 0.08);
