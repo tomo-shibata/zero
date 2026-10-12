@@ -31,3 +31,12 @@ SELECT stock_code
 FROM holdings
 GROUP BY stock_code
 ORDER BY stock_code COLLATE "C";
+
+-- name: ListHeldStockCodesOf :many
+-- 利用者 user_id の保有データにある銘柄コードを、重複なし・昇順で返す。価格の今すぐ更新が、その利用者の保有銘柄だけの終値を取得するために使う（要件16）。
+-- ListHeldStockCodes（全利用者）と同じ理由で、GROUP BY でまとめ、並びは COLLATE "C"（バイト順）にする。
+SELECT stock_code
+FROM holdings
+WHERE user_id = sqlc.arg(user_id)
+GROUP BY stock_code
+ORDER BY stock_code COLLATE "C";

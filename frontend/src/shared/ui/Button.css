@@ -10,9 +10,20 @@
   transition: background-color 0.15s ease;
 }
 
+/* 押せない見た目は、透明度ではなく色の組で作る（透明度だと、文字と地のコントラストが 4.5:1 を下回るため）。
+   --color-text-muted と --color-border のコントラストは約 5.1:1。primary・secondary のどちらでも同じ見た目にする。 */
 .button:disabled {
-  opacity: 0.6;
+  opacity: 1;
+  background: var(--color-border);
+  color: var(--color-text-muted);
   cursor: not-allowed;
+}
+
+/* ハイコントラスト（forced-colors）では背景色が無視され、押せない文字が通常の文字と同じ色になるので、システムの色で区別する。 */
+@media (forced-colors: active) {
+  .button:disabled {
+    color: GrayText;
+  }
 }
 
 .button--primary {

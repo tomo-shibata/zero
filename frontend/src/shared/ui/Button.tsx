@@ -1,9 +1,10 @@
-import type { ButtonHTMLAttributes } from 'react'
+import type { ComponentPropsWithRef } from 'react'
 import './Button.css'
 
 type ButtonVariant = 'primary' | 'secondary'
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+// ref も渡せるようにする（React 19 では、関数コンポーネントが ref を props として受け取れる）。
+type ButtonProps = ComponentPropsWithRef<'button'> & {
   variant?: ButtonVariant
 }
 

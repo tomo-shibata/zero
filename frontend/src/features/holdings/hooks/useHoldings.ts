@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchHoldings } from '../api/fetchHoldings'
 
-const HOLDINGS_QUERY_KEY = ['holdings'] as const
+/** 保有株式一覧の query key。書き込みの後に一覧を取り直す hook（useRefreshPrices など）も使う。 */
+export const HOLDINGS_QUERY_KEY = ['holdings'] as const
 
 /**
  * 保有株式一覧を取得する（サーバー状態。TanStack Query で管理する）。

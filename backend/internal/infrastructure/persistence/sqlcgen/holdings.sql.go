@@ -42,6 +42,36 @@ func (q *Queries) ListHeldStockCodes(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listHeldStockCodesOf = `-- name: ListHeldStockCodesOf :many
+SELECT stock_code
+FROM holdings
+WHERE user_id = $1
+GROUP BY stock_code
+ORDER BY stock_code COLLATE "C"
+`
+
+// 利用者 user_id の保有データにある銘柄コードを、重複なし・昇順で返す。価格の今すぐ更新が、その利用者の保有銘柄だけの終値を取得するために使う（要件16）。
+// ListHeldStockCodes（全利用者）と同じ理由で、GROUP BY でまとめ、並びは COLLATE "C"（バイト順）にする。
+func (q *Queries) ListHeldStockCodesOf(ctx context.Context, userID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listHeldStockCodesOf, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var stock_code string
+		if err := rows.Scan(&stock_code); err != nil {
+			return nil, err
+		}
+		items = append(items, stock_code)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHoldingRows = `-- name: ListHoldingRows :many
 SELECT
     h.stock_code,

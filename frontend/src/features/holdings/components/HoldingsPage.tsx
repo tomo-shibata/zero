@@ -5,6 +5,7 @@ import { Spinner } from '../../../shared/ui/Spinner'
 import { useHoldings } from '../hooks/useHoldings'
 import { HoldingsTable } from './HoldingsTable'
 import { HoldingsTotal } from './HoldingsTotal'
+import { PriceRefreshPanel } from './PriceRefreshPanel'
 import './HoldingsPage.css'
 
 const PAGE_TITLE = '保有株式一覧'
@@ -64,7 +65,10 @@ type HoldingsContentProps = {
   titleId: string
 }
 
-/** 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら合計の領域と表（要件 FR-6・FR-7）。 */
+/**
+ * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら合計の領域と、価格の今すぐ更新と、表（要件 FR-6・FR-7、要件16）。
+ * 0件のときは今すぐ更新を出さない（値段の更新の要件1）。
+ */
 function HoldingsContent({ list, titleId }: HoldingsContentProps) {
   if (list.holdings.length === 0) {
     return <p className="holdings-page__empty">{EMPTY_MESSAGE}</p>
@@ -75,6 +79,7 @@ function HoldingsContent({ list, titleId }: HoldingsContentProps) {
         totalValuation={list.totalValuation}
         excludesUnpriced={list.totalExcludesUnpriced}
       />
+      <PriceRefreshPanel />
       <HoldingsTable holdings={list.holdings} labelledBy={titleId} />
     </>
   )
