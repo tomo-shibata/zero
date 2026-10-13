@@ -38,3 +38,14 @@ export type HoldingsList = {
   /** 価格のない行が1件以上あれば true（要件 FR-6）。 */
   totalExcludesUnpriced: boolean
 }
+
+/**
+ * 価格の今すぐ更新の結果。POST /api/price-refresh の応答と同じ形（値段の更新のプラン 4.4「API」）。
+ * どちらも銘柄コードの昇順。0件のときは空の配列。
+ */
+export type PriceRefreshResult = {
+  /** 価格を保存できた銘柄コード。 */
+  saved: string[]
+  /** 価格を取得・保存できなかった銘柄コード。 */
+  failed: string[]
+}

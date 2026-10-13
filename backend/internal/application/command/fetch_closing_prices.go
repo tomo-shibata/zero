@@ -12,12 +12,13 @@ import (
 
 // FetchResult は、価格の取得処理の結果。
 type FetchResult struct {
-	Saved  []string // 終値を保存できた銘柄コード（昇順）
-	Failed []string // 終値を取得できなかった、または保存できなかった銘柄コード（昇順）
+	Saved  []string // 終値を保存できた銘柄コード（ExecuteCodes に渡した順。Execute と今すぐ更新では、DB が返す昇順）
+	Failed []string // 終値を取得できなかった、または保存できなかった銘柄コード（Saved と同じ順）
 }
 
 // FetchClosingPrices は、保有されている全銘柄の終値を取得元から取得して保存するユースケース（要件 FR-15、FR-16）。
 // 18:00 の定時実行（cmd/api のスケジューラ）と、手動実行（cmd/fetch-prices。task prices:fetch）が同じこれを使う（FR-15a）。
+// 今すぐ更新（RefreshPrices）も、ログイン中の利用者の保有銘柄に絞って、取得と保存の部分（ExecuteCodes）を使う。
 type FetchClosingPrices struct {
 	source   PriceSource
 	holdings repository.HoldingRepository
@@ -38,14 +39,26 @@ func NewFetchClosingPrices(src PriceSource, holdings repository.HoldingRepositor
 //   - エラーを返すのは、保有されている銘柄を読めなかったときだけ（どの銘柄を取得すればよいか分からないため）。
 //   - Saved・Failed は ListHeldStockCodes の順（銘柄コードの昇順）に並ぶ。
 //
-// 失敗の理由は FetchResult に入らないので、銘柄ごとにログに出す（取得元にない銘柄なのか、DB の障害なのかを後から見分けるため）。
-// 取得元が panic したときは、そのスタックも別の行でログに出す（fetchFromSource）。
+// 取得と保存そのものは ExecuteCodes が行う（今すぐ更新と同じ処理を使う。値段の更新のプラン 6章の判断8）。
 func (c *FetchClosingPrices) Execute(ctx context.Context) (FetchResult, error) {
 	codes, err := c.holdings.ListHeldStockCodes(ctx)
 	if err != nil {
 		return FetchResult{}, fmt.Errorf("保有されている銘柄を読めません: %w", err)
 	}
+	return c.ExecuteCodes(ctx, codes), nil
+}
 
+// ExecuteCodes は、渡された銘柄コード codes の終値を、取得元から取得して保存する。
+// どの銘柄を取得するかは呼び出し側が決める（定時実行は全利用者の保有銘柄、今すぐ更新はログイン中の利用者の保有銘柄。要件16）。
+// 取得と保存の決まりは Execute と同じ（プラン 4.4「株価取得の決まり」1・2・4）。
+//   - 1銘柄の取得や保存に失敗しても止めずに、その銘柄を Failed に入れて次の銘柄へ進む（FR-16）。
+//     取得元の panic も、その銘柄の失敗として扱う。失敗した銘柄の保存済みの価格には手を付けないので、そのまま残る。
+//   - ctx が取り消されたら、残りの銘柄は取得せずに Failed に入れて返す（エラーは返さない）。
+//   - Saved・Failed は codes の順に並ぶ（並べ直さない）。
+//
+// 失敗の理由は FetchResult に入らないので、銘柄ごとにログに出す（取得元にない銘柄なのか、DB の障害なのかを後から見分けるため）。
+// 取得元が panic したときは、そのスタックも別の行でログに出す（fetchFromSource）。
+func (c *FetchClosingPrices) ExecuteCodes(ctx context.Context, codes []string) FetchResult {
 	var result FetchResult
 	for _, code := range codes {
 		if err := c.fetchAndSave(ctx, code); err != nil {
@@ -57,7 +70,7 @@ func (c *FetchClosingPrices) Execute(ctx context.Context) (FetchResult, error) {
 		}
 		result.Saved = append(result.Saved, code)
 	}
-	return result, nil
+	return result
 }
 
 // fetchAndSave は、銘柄 code の終値を取得元から取得して保存する。
@@ -95,7 +108,7 @@ func (c *FetchClosingPrices) fetchFromSource(ctx context.Context, code string) (
 		if r := recover(); r != nil {
 			// 取得元のどこで panic したかを後から直せるよう、スタックをログに残す（PR③ ステップ6 の EC-P2-8）。
 			// recover した場所（panic している途中の deferred 関数の中）で取らないと、panic した箇所がスタックに残らない。
-			// スタックは複数行なので、銘柄の失敗のログ（Execute が1行で出す）とは別の行に出す。
+			// スタックは複数行なので、銘柄の失敗のログ（ExecuteCodes が1行で出す）とは別の行に出す。
 			// 銘柄コードは DB の値なので %q で出す。スタックは関数名・ファイルの位置と、引数を16進の数で表したものだけで、
 			// 文字列の中身（DB の値や取得元の応答）を含まないので、読めるようにそのまま出す。
 			log.Printf("株価取得: 銘柄 %q: 取得元が panic しました。スタック:\n%s", code, debug.Stack())

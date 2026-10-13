@@ -118,6 +118,10 @@ func run() error {
 func newDeps(pool *pgxpool.Pool, cfg config.API) router.Deps {
 	return router.Deps{
 		QueryHandler: handler.NewQueryHandler(query.NewListHoldings(read.NewHoldingsReader(pool))),
+		// 今すぐ更新は、定時実行と同じ価格の取得処理を、ログイン中の利用者の保有銘柄だけで動かす（要件 非機能2）。
+		PriceRefreshHandler: handler.NewPriceRefreshHandler(
+			command.NewRefreshPrices(newFetchClosingPrices(pool), write.NewHoldingRepository(pool)),
+		),
 		DevUserID:    cfg.DevUserID,
 		AllowedHosts: allowedHosts(cfg.Port),
 	}

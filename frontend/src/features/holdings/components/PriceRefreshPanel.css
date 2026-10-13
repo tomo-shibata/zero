@@ -1,0 +1,30 @@
+.price-refresh-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem 1rem;
+}
+
+/* 共通のボタンは横いっぱいに広がるので、この領域では文字に合わせた幅にする。
+   共通のボタン（.button）より詳細度を上げて、CSS の読み込みの順に頼らずに上書きする。 */
+.price-refresh-panel .price-refresh-panel__button {
+  width: auto;
+}
+
+.price-refresh-panel__message {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* 結果の入れ物は、ボタンの右に置く。成功の文言も失敗の文言も、ボタンとの間隔と縦の位置が同じになる。
+   文言がないときは、中身が空なので場所を取らない。 */
+.price-refresh-panel__result {
+  align-self: center;
+}
+
+/* 成功の結果の文言は、1文ずつ縦に並べる。 */
+.price-refresh-panel__status {
+  display: grid;
+  gap: 0.25rem;
+}
