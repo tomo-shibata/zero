@@ -46,3 +46,13 @@ body {
   outline: 3px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* 画面には出さず、支援技術にだけ読ませる文字（例: 表の列見出し「操作」）。 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
