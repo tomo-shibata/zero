@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteHoldingsOf = `-- name: DeleteHoldingsOf :execrows
+DELETE FROM holdings
+WHERE user_id = $1
+  AND stock_code = $2
+`
+
+type DeleteHoldingsOfParams struct {
+	UserID    pgtype.UUID
+	StockCode string
+}
+
+// 利用者 user_id の、銘柄 stock_code の保有データをすべて消し、消えた件数を返す。銘柄ごとの削除が使う（要件14）。
+// 他の利用者の保有データは user_id で、同じ利用者の別の銘柄は stock_code で除く。手入力の価格は別のテーブルなので消えない。
+func (q *Queries) DeleteHoldingsOf(ctx context.Context, arg DeleteHoldingsOfParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteHoldingsOf, arg.UserID, arg.StockCode)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listHeldStockCodes = `-- name: ListHeldStockCodes :many
 SELECT stock_code
 FROM holdings

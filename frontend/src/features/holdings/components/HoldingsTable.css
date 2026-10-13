@@ -1,5 +1,7 @@
 /* 狭い画面では表だけを横にスクロールさせる（ページ全体を横にスクロールさせない）。 */
 .holdings-table__scroll {
+  /* 画面に出さない文字（.visually-hidden。position: absolute）の基準にする。基準がないと、スクロールの領域の外に出て、ページ全体が横にスクロールする。 */
+  position: relative;
   overflow-x: auto;
   background: var(--color-surface);
   border-radius: var(--radius-lg);
@@ -29,6 +31,16 @@
   border-bottom: none;
 }
 
+/* 銘柄名の列だけ折り返しを許す。8列目が増えて表がページの幅を超え、「⋯」が横スクロールの外に隠れるのを防ぐ（値段の更新のプラン 6章の判断39）。 */
+.holdings-table__cell--name {
+  min-width: 8rem;
+  white-space: normal;
+  /* 対応するブラウザでは、日本語を文節で折り返す（単語の途中で切れにくくする）。対応しないブラウザでは無視される。 */
+  word-break: auto-phrase;
+  /* 文節で折り返しても入りきらない長い文節だけは、途中で切る（列の最小の幅 min-width を 8rem に戻すため）。 */
+  overflow-wrap: anywhere;
+}
+
 .holdings-table__cell--numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -36,4 +48,10 @@
 
 .holdings-table__cell--unavailable {
   color: var(--color-text-muted);
+}
+
+/* 8列目（行ごとの「⋯」のメニュー）。ボタンが入る幅にし、右に揃える。 */
+.holdings-table__cell--actions {
+  padding-block: 0.25rem;
+  text-align: right;
 }

@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
+import { useId } from 'react'
 import { Button } from './Button'
+import { useOpenAsModal } from './useOpenAsModal'
 import './AlertDialog.css'
 
 const CLOSE_BUTTON_LABEL = '閉じる'
@@ -40,22 +41,4 @@ export function AlertDialog({ message, onClose }: AlertDialogProps) {
       </Button>
     </dialog>
   )
-}
-
-/**
- * 描画した <dialog> をモーダルで開く。
- * 開いているかを確かめてから開くのは、開発時の StrictMode で effect が2回動いても、開いたダイアログを開き直さないため。
- * 閉じるのは <dialog> の close（「閉じる」ボタンと Esc キー）。閉じた後に描画しなくするのは呼び出し側。
- */
-function useOpenAsModal() {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (dialog && !dialog.open) {
-      dialog.showModal()
-    }
-  }, [])
-
-  return dialogRef
 }

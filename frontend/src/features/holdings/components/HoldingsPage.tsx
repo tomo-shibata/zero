@@ -1,8 +1,9 @@
-import { useId, useRef, useState } from 'react'
-import type { HoldingsList } from '../../../entities/holding/model'
+import { useEffect, useId, useRef, useState } from 'react'
+import type { Holding, HoldingsList } from '../../../entities/holding/model'
 import { AlertDialog } from '../../../shared/ui/AlertDialog'
 import { Spinner } from '../../../shared/ui/Spinner'
 import { useHoldings } from '../hooks/useHoldings'
+import { DeleteHoldingDialog } from './DeleteHoldingDialog'
 import { HoldingsTable } from './HoldingsTable'
 import { HoldingsTotal } from './HoldingsTotal'
 import { PriceRefreshPanel } from './PriceRefreshPanel'
@@ -26,6 +27,24 @@ export function HoldingsPage() {
   // 見出しの id。表とそれを囲む横スクロールの領域の名前にも使う（PR④ ステップ6 の D-2）。
   const titleId = useId()
   const titleRef = useRef<HTMLHeadingElement>(null)
+  // 削除の確認のダイアログの対象の銘柄（なければ閉じている）。クライアント状態なので、ここで持つ（値段の更新のプラン 4.4「画面」）。
+  const [deleteTarget, setDeleteTarget] = useState<Pick<Holding, 'code' | 'name'> | null>(null)
+  // 確認のダイアログを開いた「⋯」（メニューを選んだ直後にフォーカスがある要素。MenuButton が「⋯」に戻してから onSelect を呼ぶ）。
+  const deleteOpenerRef = useRef<HTMLElement | null>(null)
+  // 確認のダイアログを閉じた後に、フォーカスを移す先。閉じた後（ダイアログが画面から消えた後）の effect で移す。
+  const focusAfterDeleteRef = useRef<'opener' | 'title' | null>(null)
+
+  // 閉じている間にフォーカスを移すと、モーダルのダイアログが背後を操作できなくしているので移せない。
+  // そのため、ダイアログを描画しなくなった後の effect で移す（プラン 4.4「閉じた後のフォーカス」）。
+  useEffect(() => {
+    if (deleteTarget !== null) return
+    const destination = focusAfterDeleteRef.current
+    focusAfterDeleteRef.current = null
+    const opener = deleteOpenerRef.current
+    // 戻り先の「⋯」がもう画面にない（行が消えた）ときは、見出しに移す（判断40）。
+    if (destination === 'opener' && opener?.isConnected) opener.focus()
+    else if (destination !== null) titleRef.current?.focus()
+  }, [deleteTarget])
 
   // 読み込み中はアイコンだけ（見出しも出さない。要件 FR-21、プラン 6章の判断8）。
   if (holdingsQuery.isPending) {
@@ -34,6 +53,17 @@ export function HoldingsPage() {
         <Spinner label={LOADING_LABEL} />
       </main>
     )
+  }
+
+  const handleDelete = (holding: Holding) => {
+    deleteOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setDeleteTarget({ code: holding.code, name: holding.name })
+  }
+
+  const handleDeleteDialogClose = (deleted: boolean) => {
+    // 削除したなら、開いた行はなくなる（一覧を取り直す）ので、残る見出しに移す。しなかったなら、開いた行の「⋯」に戻す。
+    focusAfterDeleteRef.current = deleted ? 'title' : 'opener'
+    setDeleteTarget(null)
   }
 
   const handleErrorDialogClose = () => {
@@ -53,7 +83,14 @@ export function HoldingsPage() {
           <AlertDialog message={FETCH_ERROR_MESSAGE} onClose={handleErrorDialogClose} />
         )
       ) : (
-        <HoldingsContent list={holdingsQuery.data} titleId={titleId} />
+        <HoldingsContent list={holdingsQuery.data} titleId={titleId} onDelete={handleDelete} />
+      )}
+      {deleteTarget !== null && (
+        <DeleteHoldingDialog
+          code={deleteTarget.code}
+          name={deleteTarget.name}
+          onClose={handleDeleteDialogClose}
+        />
       )}
     </main>
   )
@@ -63,13 +100,15 @@ type HoldingsContentProps = {
   list: HoldingsList
   /** 画面の見出しの id（表の名前に使う）。 */
   titleId: string
+  /** 行のメニューの「削除」が選ばれたときに呼ばれる。 */
+  onDelete: (holding: Holding) => void
 }
 
 /**
  * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら合計の領域と、価格の今すぐ更新と、表（要件 FR-6・FR-7、要件16）。
  * 0件のときは今すぐ更新を出さない（値段の更新の要件1）。
  */
-function HoldingsContent({ list, titleId }: HoldingsContentProps) {
+function HoldingsContent({ list, titleId, onDelete }: HoldingsContentProps) {
   if (list.holdings.length === 0) {
     return <p className="holdings-page__empty">{EMPTY_MESSAGE}</p>
   }
@@ -80,7 +119,7 @@ function HoldingsContent({ list, titleId }: HoldingsContentProps) {
         excludesUnpriced={list.totalExcludesUnpriced}
       />
       <PriceRefreshPanel />
-      <HoldingsTable holdings={list.holdings} labelledBy={titleId} />
+      <HoldingsTable holdings={list.holdings} labelledBy={titleId} onDelete={onDelete} />
     </>
   )
 }
