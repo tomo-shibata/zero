@@ -9,6 +9,17 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
 )
 
+// 金額の整数（0.01 単位）を、通貨ごとの文字列にするときの単位と小数の桁数。
+const (
+	// yenUnitPriceStepHundredths は、円の単価の最小の単位 0.1円（0.01 単位で10）。円の単価はこの倍数でなければならない。
+	yenUnitPriceStepHundredths = 10
+	// yenValuationStepHundredths は、円の評価額の最小の単位 1円（0.01 単位で100）。円の評価額はこの倍数でなければならない。
+	yenValuationStepHundredths = 100
+	// yenUnitPriceDecimals・usdDecimals は、単価の文字列の小数の桁数（円は 0.1円まで、ドルは 0.01ドルまで）。
+	yenUnitPriceDecimals = 1
+	usdDecimals          = 2
+)
+
 // 値そのものは資産の額なので、エラー（ログに出る）には入れない。
 var (
 	errYenUnitPriceNotTenth = errors.New("円の単価が 0.1円で割り切れません")
@@ -50,31 +61,9 @@ func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
 	// 0件でも holdings・totals を null ではなく [] にするため、nil ではないスライスから始める。
 	holdings := make([]holdingResponse, 0, len(list.Holdings))
 	for _, h := range list.Holdings {
-		acquisition, err := formatUnitPrice(h.Currency, h.AcquisitionPriceHundredths)
+		row, err := newHoldingResponse(h)
 		if err != nil {
-			return holdingsResponse{}, fmt.Errorf("銘柄 %q の取得価格: %w", h.Code, err)
-		}
-		row := holdingResponse{
-			Code:             h.Code,
-			Name:             h.Name,
-			Currency:         string(h.Currency),
-			Quantity:         h.Quantity,
-			AcquisitionPrice: acquisition,
-			PriceDate:        h.PriceDate,
-		}
-		if h.CurrentPriceHundredths != nil {
-			current, err := formatUnitPrice(h.Currency, *h.CurrentPriceHundredths)
-			if err != nil {
-				return holdingsResponse{}, fmt.Errorf("銘柄 %q の現在の価格: %w", h.Code, err)
-			}
-			row.CurrentPrice = &current
-		}
-		if h.ValuationHundredths != nil {
-			valuation, err := formatValuation(h.Currency, *h.ValuationHundredths)
-			if err != nil {
-				return holdingsResponse{}, fmt.Errorf("銘柄 %q の評価額: %w", h.Code, err)
-			}
-			row.Valuation = &valuation
+			return holdingsResponse{}, err
 		}
 		holdings = append(holdings, row)
 	}
@@ -94,6 +83,37 @@ func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
 	return holdingsResponse{Holdings: holdings, Totals: totals}, nil
 }
 
+// newHoldingResponse は、一覧の1行 h を API の本文の形にする。取得価格、現在の価格、評価額の順に変換し、最初のエラーを返す。
+func newHoldingResponse(h dto.Holding) (holdingResponse, error) {
+	acquisition, err := formatUnitPrice(h.Currency, h.AcquisitionPriceHundredths)
+	if err != nil {
+		return holdingResponse{}, fmt.Errorf("銘柄 %q の取得価格: %w", h.Code, err)
+	}
+	row := holdingResponse{
+		Code:             h.Code,
+		Name:             h.Name,
+		Currency:         string(h.Currency),
+		Quantity:         h.Quantity,
+		AcquisitionPrice: acquisition,
+		PriceDate:        h.PriceDate,
+	}
+	if h.CurrentPriceHundredths != nil {
+		current, err := formatUnitPrice(h.Currency, *h.CurrentPriceHundredths)
+		if err != nil {
+			return holdingResponse{}, fmt.Errorf("銘柄 %q の現在の価格: %w", h.Code, err)
+		}
+		row.CurrentPrice = &current
+	}
+	if h.ValuationHundredths != nil {
+		valuation, err := formatValuation(h.Currency, *h.ValuationHundredths)
+		if err != nil {
+			return holdingResponse{}, fmt.Errorf("銘柄 %q の評価額: %w", h.Code, err)
+		}
+		row.Valuation = &valuation
+	}
+	return row, nil
+}
+
 // formatUnitPrice は、0.01 単位の単価を、通貨の単価の形の文字列にする。
 // 円は小数第1位を必ず1桁付ける（例: 250000 → "2500.0"、5 は 0.05円なのでエラー）。ドルは小数第2位を必ず2桁付ける（例: 15025 → "150.25"）。
 // 小数の末尾が0でも省かないのは、API の単価の形を通貨ごとに1つ（円 ^[0-9]+\.[0-9]$・ドル ^[0-9]+\.[0-9]{2}$）にして、
@@ -101,12 +121,12 @@ func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
 func formatUnitPrice(currency dto.Currency, hundredths int64) (string, error) {
 	switch currency {
 	case dto.CurrencyJPY:
-		if hundredths%10 != 0 {
+		if hundredths%yenUnitPriceStepHundredths != 0 {
 			return "", errYenUnitPriceNotTenth
 		}
-		return formatDecimal(hundredths/10, 1), nil
+		return formatDecimal(hundredths/yenUnitPriceStepHundredths, yenUnitPriceDecimals), nil
 	case dto.CurrencyUSD:
-		return formatDecimal(hundredths, 2), nil
+		return formatDecimal(hundredths, usdDecimals), nil
 	default:
 		return "", fmt.Errorf("知らない通貨 %q です", currency)
 	}
@@ -118,12 +138,12 @@ func formatUnitPrice(currency dto.Currency, hundredths int64) (string, error) {
 func formatValuation(currency dto.Currency, hundredths int64) (string, error) {
 	switch currency {
 	case dto.CurrencyJPY:
-		if hundredths%100 != 0 {
+		if hundredths%yenValuationStepHundredths != 0 {
 			return "", errYenValuationNotWhole
 		}
-		return strconv.FormatInt(hundredths/100, 10), nil
+		return strconv.FormatInt(hundredths/yenValuationStepHundredths, 10), nil
 	case dto.CurrencyUSD:
-		return formatDecimal(hundredths, 2), nil
+		return formatDecimal(hundredths, usdDecimals), nil
 	default:
 		return "", fmt.Errorf("知らない通貨 %q です", currency)
 	}

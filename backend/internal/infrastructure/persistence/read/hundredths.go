@@ -14,6 +14,10 @@ var (
 	errPriceOutOfRange    = errors.New("単価が int64 の範囲を超えます")
 )
 
+// maxShiftDigits は、計算する前に断る 10 の乗数の上限。巨大な Exp で大きな数を作らないため、これより大きい shift は計算せずに断る。
+// これ以下でも int64 に収まらなければ（0 でない値に 10^19 以上をかけると必ず収まらない）、後の IsInt64 で断る。
+const maxShiftDigits = 20
+
 // hundredthsFromNumeric は、PostgreSQL の NUMERIC の単価（円またはドル）を 0.01 単位の整数にする。
 //
 // 単価の列は桁数を指定しない NUMERIC なので、書いた桁（scale）のまま保存される（2000 と 2001.0 で scale が違う。プラン 4.2）。
@@ -38,7 +42,7 @@ func hundredthsFromNumeric(n pgtype.Numeric) (int64, error) {
 	hundredths := new(big.Int).Set(n.Int)
 	if shift := int64(n.Exp) + 2; shift >= 0 {
 		// 0 でない値に 10^20 以上をかけると、int64 に収まらない。巨大な桁の Exp で、大きな数を作らないために先に断る。
-		if shift > 20 {
+		if shift > maxShiftDigits {
 			return 0, errPriceOutOfRange
 		}
 		hundredths.Mul(hundredths, pow10(shift))

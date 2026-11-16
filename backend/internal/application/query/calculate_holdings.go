@@ -25,6 +25,8 @@ const (
 	yenPriceUnitHundredths = 10
 	// yenValuationUnitHundredths は、円の評価額の最小の単位 1円。評価額は、これの倍数に切り捨てる（要件11）。
 	yenValuationUnitHundredths = 100
+	// usdUnitHundredths は、ドルの価格・評価額の最小の単位 0.01ドル。取得価格も評価額も、これ（丸めない単位）の倍数にする（要件7・要件11）。
+	usdUnitHundredths = 1
 )
 
 // CalculateHoldings は、利用者の売買履歴 rows から、保有株式一覧を作る（要件4・6〜15。移動平均法）。
@@ -49,7 +51,7 @@ func CalculateHoldings(rows []dto.TradeRow) (dto.HoldingsList, error) {
 		byCode[r.Code] = append(byCode[r.Code], r)
 	}
 
-	list := dto.HoldingsList{Holdings: make([]dto.Holding, 0, len(byCode)), Totals: []dto.CurrencyTotal{}}
+	list := dto.HoldingsList{Holdings: make([]dto.Holding, 0, len(byCode))}
 	totals := make(map[dto.Currency]*currencyTotal)
 	// slices.Sorted は文字列を < で比べるので、Go の文字列としての昇順（"1301" < "130A" < "7203"）になる。
 	// あふれる銘柄が複数あっても、毎回同じ銘柄をエラーに入れるため、エラーもこの順に見つける。
@@ -77,17 +79,24 @@ func CalculateHoldings(rows []dto.TradeRow) (dto.HoldingsList, error) {
 			return dto.HoldingsList{}, fmt.Errorf("銘柄 %q までの%s の合計評価額: %w", code, h.Currency, ErrCalculationOverflow)
 		}
 	}
-	// 通貨ごとの合計は、保有のある通貨だけを、円、ドルの順に入れる。
+	list.Totals = buildTotals(totals)
+	return list, nil
+}
+
+// buildTotals は、通貨ごとの合計 totals から、保有のある通貨だけを、円、ドルの順に並べた一覧を返す。
+// 保有のある通貨がなければ、nil ではなく空のスライスを返す。
+func buildTotals(totals map[dto.Currency]*currencyTotal) []dto.CurrencyTotal {
+	result := []dto.CurrencyTotal{}
 	for _, currency := range []dto.Currency{dto.CurrencyJPY, dto.CurrencyUSD} {
 		if t := totals[currency]; t != nil {
-			list.Totals = append(list.Totals, dto.CurrencyTotal{
+			result = append(result, dto.CurrencyTotal{
 				Currency:            currency,
 				ValuationHundredths: t.valuation.Int64(),
 				ExcludesUnpriced:    t.excludesUnpriced,
 			})
 		}
 	}
-	return list, nil
+	return result
 }
 
 // currencyTotal は、1つの通貨の合計評価額を足していく途中の値。
@@ -151,7 +160,7 @@ func roundingUnits(currency dto.Currency) (priceUnit, valuationUnit int64, err e
 	case dto.CurrencyJPY:
 		return yenPriceUnitHundredths, yenValuationUnitHundredths, nil
 	case dto.CurrencyUSD:
-		return 1, 1, nil
+		return usdUnitHundredths, usdUnitHundredths, nil
 	default:
 		return 0, 0, fmt.Errorf("知らない通貨 %q です", currency)
 	}
