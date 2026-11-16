@@ -26,8 +26,8 @@ const (
 	msgDateFormat    = "取引日は YYYY-MM-DD か YYYY/M/D の実在する日付にしてください"
 	msgDateFuture    = "未来の取引日は取り込めません"
 
-	// 取り込めなかったときの先頭の行。
-	failedHeadline = "取り込めませんでした。何も変えていません。"
+	// FailedHeadline は、取り込めなかったときの先頭の行。cmd/import-trades の main も、Run を呼ぶ前の失敗で同じ行を出すために使う。
+	FailedHeadline = "取り込めませんでした。何も変えていません。"
 )
 
 // 見出し（要件23）。この順・この表記に完全に一致しなければならない。

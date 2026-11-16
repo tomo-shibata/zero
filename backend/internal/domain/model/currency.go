@@ -17,6 +17,11 @@ const (
 // yenPriceUnitHundredths は、円の価格の最小の単位（0.1円）が 0.01 単位でいくつか。
 const yenPriceUnitHundredths = 10
 
+// isKnown は、c が円（JPY）かドル（USD）かを返す。
+func (c Currency) isKnown() bool {
+	return c == CurrencyJPY || c == CurrencyUSD
+}
+
 // AcceptsPrice は、0.01 単位の価格 hundredths が、この通貨の精度に合うかを返す（要件3・要件5）。
 // 円は小数第1位（0.1円）まで、つまり 0.01 単位で10の倍数のときだけ真。ドルは小数第2位（0.01）までなので、すべて真。
 // 円の精度は DB の CHECK では確かめられない（銘柄の通貨が別のテーブルにあるため。プラン 6章の判断4）ので、ここで確かめる。
@@ -37,7 +42,7 @@ func (c Currency) AcceptsPrice(hundredths int64) bool {
 // 大きさ（0より大きく1億未満）は確かめない（CheckPrice が先に確かめる）が、0.01 単位の int64 に収まらない値は ErrPriceTooLarge を返す。
 // 知らない通貨はエラーにする。
 func (c Currency) PriceHundredths(price *big.Rat) (int64, error) {
-	if c != CurrencyJPY && c != CurrencyUSD {
+	if !c.isKnown() {
 		return 0, fmt.Errorf("知らない通貨 %q です", string(c))
 	}
 	scaled := new(big.Rat).Mul(price, new(big.Rat).SetInt64(hundredthsPerUnit))

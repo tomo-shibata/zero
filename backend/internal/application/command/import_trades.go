@@ -98,11 +98,7 @@ func (u *ImportTrades) Execute(ctx context.Context, userID uuid.UUID, rows []Imp
 	}
 
 	newStocks, renamed := classifyStocks(first, master)
-	trades := make([]model.Trade, len(rows))
-	for i, row := range rows {
-		trades[i] = row.Trade
-	}
-	if err := u.repo.ReplaceTrades(ctx, userID, newStocks, renamed, trades); err != nil {
+	if err := u.repo.ReplaceTrades(ctx, userID, newStocks, renamed, tradesOf(rows)); err != nil {
 		return ImportResult{}, err
 	}
 	return ImportResult{Imported: len(rows), NewStocks: codesOf(newStocks), RenamedStocks: codesOf(renamed)}, nil
@@ -138,11 +134,7 @@ func findProblems(rows []ImportRow, first map[string]ImportRow, master map[strin
 		}
 	}
 
-	trades := make([]model.Trade, len(rows))
-	for i, row := range rows {
-		trades[i] = row.Trade
-	}
-	for _, o := range model.FindOversells(trades) {
+	for _, o := range model.FindOversells(tradesOf(rows)) {
 		problems = append(problems, ImportProblem{Line: rows[o.Index].Line, Kind: ProblemOversell, Held: o.Held, Sold: o.Sold})
 	}
 
@@ -166,6 +158,15 @@ func classifyStocks(first map[string]ImportRow, master map[string]model.Stock) (
 		}
 	}
 	return newStocks, renamed
+}
+
+// tradesOf は、rows の売買を、並びのまま返す。
+func tradesOf(rows []ImportRow) []model.Trade {
+	trades := make([]model.Trade, len(rows))
+	for i, row := range rows {
+		trades[i] = row.Trade
+	}
+	return trades
 }
 
 // codesOf は、stocks の銘柄コードを、並びのまま返す。

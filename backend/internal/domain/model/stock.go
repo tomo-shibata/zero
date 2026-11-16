@@ -61,7 +61,7 @@ func NewStock(code, name string, currency Currency) (Stock, error) {
 	if err := CheckStockName(name); err != nil {
 		return Stock{}, err
 	}
-	if currency != CurrencyJPY && currency != CurrencyUSD {
+	if !currency.isKnown() {
 		return Stock{}, ErrInvalidCurrency
 	}
 	return Stock{Code: code, Name: name, Currency: currency}, nil

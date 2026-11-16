@@ -76,7 +76,7 @@ func resolveCSVPath(workdir, csv string) string {
 
 // failBeforeRun は、Run を呼ぶ前の失敗 err を、取り込みの誤りと同じ形（先頭の行と理由の1行）で標準エラーに出し、終了コード 1 を返す。
 func failBeforeRun(err error) int {
-	_, _ = fmt.Fprintln(os.Stderr, "取り込めませんでした。何も変えていません。")
+	_, _ = fmt.Fprintln(os.Stderr, tradecsv.FailedHeadline)
 	_, _ = fmt.Fprintln(os.Stderr, err)
 	return 1
 }

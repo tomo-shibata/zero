@@ -126,7 +126,7 @@ func reasonOf(err error) string {
 
 // fail は、「取り込めませんでした。何も変えていません。」と messages を stderr に1行ずつ書き、終了コード1を返す。
 func fail(stderr io.Writer, messages ...string) int {
-	writeLines(stderr, append([]string{failedHeadline}, messages...))
+	writeLines(stderr, append([]string{FailedHeadline}, messages...))
 	return exitFailure
 }
 
