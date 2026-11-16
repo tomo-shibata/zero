@@ -9,7 +9,7 @@ import (
 )
 
 // 仕様: 要件（docs/requirements/price-update.md）の非機能1・基準32（別のオリジンからの書き込みの要求は、何も保存・削除せず、取得元も呼ばずに拒否する。
-// アプリの画面と同じオリジンからの同じ要求は受け付ける）と、プラン（docs/plans/price-update/plan.md）5.1 の基準32 の行（PR① は今すぐ更新だけ）、
+// アプリの画面と同じオリジンからの同じ要求は受け付ける）と、プラン（docs/plans/price-update/plan.md）5.1 の基準32 の行（PR① は今すぐ更新、PR② は削除）、
 // 5.2 の PR① の判断4 の行、6章の判断4（別のサイトからの書き込みの拒否は http.CrossOriginProtection。読み取りは対象外）。
 // 組み立てと要求の付け方は price_refresh_api_test.go（4.4「統合テストの要求」: Host: 127.0.0.1:8080、受け付けの組は Origin: http://localhost:5173
 // と Sec-Fetch-Site: same-origin の両方）。拒否は 403 と {"error":"forbidden"}（4.4 の API の共通）。
@@ -122,4 +122,54 @@ func Test補助_判断4_拒否の403にもno_storeとnosniffが付く(t *testing
 	}
 	assertSingleHeader(t, rec, "Cache-Control", "no-store")
 	assertSingleHeader(t, rec, "X-Content-Type-Options", "nosniff")
+}
+
+// 基準32（非機能1）の PR② の部分: 銘柄の削除（DELETE /api/holdings/{code}）。
+// Given: Aが 7203 を保有（受け付ければ 204 で消える同じ正しい要求になる）。Bの 7203 と、Aの 6758 も保有する
+// （受け付けの組で消えるのが、Aの 7203 だけであることまで確かめる）。
+// プラン 5.1: 拒否の (a) Origin: http://evil.example（Sec-Fetch-Site なし） (b) Sec-Fetch-Site: cross-site (c) Sec-Fetch-Site: same-site を先に送り、
+// どれも 403 と {"error":"forbidden"}・何も消えない。最後に受け付けの組（Origin: http://localhost:5173 と Sec-Fetch-Site: same-origin の両方）を送り、
+// 204 で消える（拒否の後に受け付けを送るので、拒否のときに実際に消していなければ、消えたのは受け付けの要求だと分かる）。
+// (b)(c) は、Origin を画面と同じ http://localhost:5173 にして、Sec-Fetch-Site だけで拒否されることを確かめる。
+func Test基準32_削除は別のオリジンからの要求を拒否し何も消さず同じオリジンの同じ要求は受け付ける(t *testing.T) {
+	// サブテストを並列にしない（拒否を先に、受け付けを最後に順に送る）ので、tparallel の決まりに合わせてこのテスト自体も並列にしない。
+	pool := testdb.New(t)
+	insertHolding(t, pool, seedUserA, "7203", 100, "2000")
+	insertHolding(t, pool, seedUserA, "6758", 50, "3200")
+	insertHolding(t, pool, seedUserB, "7203", 10, "2500")
+	h := newDeleteAPI(pool, seedUserA)
+
+	rejected := []struct {
+		name    string
+		headers map[string]string
+	}{
+		{"拒否a_Originがevil_exampleでSec_Fetch_Siteなし", map[string]string{"Origin": evilOrigin}},
+		{"拒否b_Sec_Fetch_Siteがcross_site", map[string]string{"Origin": appOrigin, secFetchSiteField: "cross-site"}},
+		{"拒否c_Sec_Fetch_Siteがsame_site", map[string]string{"Origin": appOrigin, secFetchSiteField: "same-site"}},
+	}
+	// 順に実行する（t.Parallel() を付けない）。拒否のあとに受け付けを送るため。
+	for _, tc := range rejected {
+		t.Run(tc.name+"は403で何も消えない", func(t *testing.T) {
+			rec := serveDelete(t, h, holdingDeletePath("7203"), tc.headers)
+
+			assertJSONResponse(t, rec, http.StatusForbidden, forbiddenJSON)
+			assertHoldings(t, pool, []storedHolding{
+				{seedUserA, "6758", 50, 32000},
+				{seedUserA, "7203", 100, 20000},
+				{seedUserB, "7203", 10, 25000},
+			})
+		})
+	}
+
+	t.Run("受け付けの組_OriginがlocalhostでSec_Fetch_Siteがsame_originは204でAの7203が消える", func(t *testing.T) {
+		rec := serveDelete(t, h, holdingDeletePath("7203"), sameOriginHeaders())
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("ステータス: got %d, want %d\n本文: %s", rec.Code, http.StatusNoContent, rec.Body.Bytes())
+		}
+		assertHoldings(t, pool, []storedHolding{
+			{seedUserA, "6758", 50, 32000},
+			{seedUserB, "7203", 10, 25000},
+		})
+	})
 }

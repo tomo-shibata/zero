@@ -12,6 +12,7 @@ import (
 const (
 	CodeInternalError = "internal_error" // 500。内部のエラーの内容は返さず、ログに出す
 	CodeForbidden     = "forbidden"      // 403
+	CodeNotFound      = "not_found"      // 404
 )
 
 // errorBody は、エラーの応答の本文。

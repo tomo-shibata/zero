@@ -1,0 +1,49 @@
+/* open のときだけ grid にする（常に grid にすると、showModal の前の閉じた <dialog> が見えてしまう）。 */
+.confirm-dialog[open] {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.confirm-dialog {
+  width: calc(100% - 3rem);
+  max-width: 25rem;
+  padding: 2rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  /* 通常は見えない枠。ハイコントラスト（forced-colors）では枠の色がシステムの色になり、影の消えたダイアログの境界が見える（AlertDialog と同じ）。 */
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.confirm-dialog::backdrop {
+  background: var(--color-overlay);
+}
+
+.confirm-dialog__message {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* 失敗の文。エラー用の色がまだないので、既存の文字の色の左の線で目立たせる（色だけに頼らず、forced-colors でも線が見える）。 */
+.confirm-dialog__error {
+  margin: 0;
+  padding-inline-start: 0.75rem;
+  font-size: 0.875rem;
+  border-inline-start: 0.25rem solid var(--color-text);
+}
+
+/* 入りきらなければ、ボタンを2段に積む。 */
+.confirm-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* 共通のボタンは横いっぱいに広がるので、並べたときに同じ幅で分け合う。文言は折り返さない。 */
+.confirm-dialog__actions .button {
+  /* flex-basis を 0 にして、並ぶときは同じ幅にする（共通のボタンの width: 100% が基準だと、いつも2段になる）。 */
+  flex: 1 1 0;
+  white-space: nowrap;
+}

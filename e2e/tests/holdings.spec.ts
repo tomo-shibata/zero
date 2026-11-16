@@ -40,7 +40,10 @@ const UNAVAILABLE = '取得できません'
 const LOADING_LABEL = '読み込み中'
 const FETCH_ERROR_MESSAGE = '保有株式の取得に失敗しました'
 const CLOSE_BUTTON = '閉じる'
-/** 表の列見出し（要件 FR-3 の順。プラン 4.4「表」）。 */
+/**
+ * 表の列見出し（要件 FR-3 の順の7列と、値段の更新の PR② で足された8列目「操作」。プラン 4.4「画面」の表の8列目）。
+ * 8列目の見出しは、画面には出さず支援技術にだけ読ませる。
+ */
 const COLUMN_HEADERS = [
   '銘柄コード',
   '銘柄名',
@@ -49,6 +52,7 @@ const COLUMN_HEADERS = [
   '現在の価格',
   '価格の基準日',
   '評価額',
+  '操作',
 ]
 
 // ---- テストデータ（要件「成功基準」の銘柄マスタとダミー価格） ----
@@ -86,6 +90,15 @@ function holdingRow(page: Page, code: string): Locator {
   return holdingsTable(page)
     .getByRole('row')
     .filter({ has: page.getByRole('cell', { name: code, exact: true }) })
+}
+
+/**
+ * 行のデータの7セル（銘柄コード・銘柄名・保有数量・取得価格・現在の価格・価格の基準日・評価額）。
+ * 値段の更新の PR② で行の右端に「⋯」の8列目が足されたので、先頭の7つのセルだけを選ぶ
+ * （プラン 4.5「既存のテストで変えるもの」、判断10。price-update.spec.ts の dataCells と同じ）。
+ */
+function dataCells(row: Locator): Locator {
+  return row.locator('td:nth-child(-n+7)')
 }
 
 function errorDialog(page: Page): Locator {
@@ -146,10 +159,10 @@ test('AC-1・補助 FR-14（TC-25）: 7203 の行に「7203 / トヨタ自動車
   ).toBe(BROWSER_TIMEZONE)
 
   await expect(holdingsHeading(page)).toBeVisible()
-  // 列の並び（要件 FR-3。プラン 4.4「表」の列見出し）。
+  // 列の並び（要件 FR-3 の7列と、8列目の「操作」）。
   await expect(holdingsTable(page).getByRole('columnheader')).toHaveText(COLUMN_HEADERS)
-  // 7203 の行の7つのセル（AC-1）。価格の基準日は 2026-10-06 のまま（TC-25）。
-  await expect(holdingRow(page, '7203').getByRole('cell')).toHaveText(TOYOTA_ROW)
+  // 7203 の行のデータの7セル（AC-1。8列目の「⋯」は含めない）。価格の基準日は 2026-10-06 のまま（TC-25）。
+  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
 })
 
 test('AC-3: ダッシュボードでリンク「保有株式一覧」を押すと /holdings が表示される', async ({ page }) => {
@@ -246,7 +259,7 @@ test('AC-11: 9984 の価格が一度も保存されていないとき、9984 の
 
   // 9984 の行: 現在の価格・価格の基準日・評価額の3つのセルが「取得できません」（FR-10）。
   // ほかのセルは FR-3・12・13 のとおり（銘柄名は銘柄マスタから。FR-20）。
-  await expect(holdingRow(page, '9984').getByRole('cell')).toHaveText([
+  await expect(dataCells(holdingRow(page, '9984'))).toHaveText([
     '9984',
     'ソフトバンクグループ',
     '50株',
@@ -256,7 +269,7 @@ test('AC-11: 9984 の価格が一度も保存されていないとき、9984 の
     UNAVAILABLE,
   ])
   // 7203 の行は通常どおり（AC-1 のとおり）。
-  await expect(holdingRow(page, '7203').getByRole('cell')).toHaveText(TOYOTA_ROW)
+  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
 })
 
 test('AC-18・補助 NFR-3（PR4_TC04）: 100銘柄（すべて価格が保存済み）を保有しているとき、/holdings を開いてから2秒以内に一覧が表示される（計測値を annotation に残す）', async ({ page, browser }) => {
@@ -356,7 +369,7 @@ test('補助 FR-21（SR-15、TC-32）: 一度表示した後にダッシュボ�
   }
 
   // 応答が返ると一覧が出て、「読み込み中」のアイコンは消える。
-  await expect(holdingRow(page, '7203').getByRole('cell')).toHaveText(TOYOTA_ROW)
+  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
   await expect(loadingStatus(page)).toHaveCount(0)
 })
 

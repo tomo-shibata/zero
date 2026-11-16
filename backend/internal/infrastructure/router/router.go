@@ -19,11 +19,13 @@ type Deps struct {
 	QueryHandler *handler.QueryHandler
 	// PriceRefreshHandler は、POST /api/price-refresh（価格の今すぐ更新）を受け持つ。nil なら /api/price-refresh を登録しない。
 	PriceRefreshHandler *handler.PriceRefreshHandler
+	// HoldingDeleteHandler は、DELETE /api/holdings/{code}（銘柄ごとの削除）を受け持つ。nil なら /api/holdings/{code} を登録しない。
+	HoldingDeleteHandler *handler.HoldingDeleteHandler
 	// DevUserID は、ログイン中の利用者として扱う開発用利用者（認証を作るまでの代わり。プラン 6章の判断5）。
 	DevUserID uuid.UUID
 	// AllowedHosts は、/api/ 以下で受け付ける Host ヘッダー（"127.0.0.1:<PORT>" など。プラン 6章の判断12）。
 	// 空なら、/api/ 以下のルートはどの Host でも 403 になる（設定を忘れても開いたままにしない）。
-	// /api/ 以下にルートが1つもない（QueryHandler と PriceRefreshHandler が nil）ときは、chi がミドルウェアを通さずに 404 を返す。
+	// /api/ 以下にルートが1つもない（QueryHandler・PriceRefreshHandler・HoldingDeleteHandler が nil）ときは、chi がミドルウェアを通さずに 404 を返す。
 	AllowedHosts []string
 }
 
@@ -47,6 +49,9 @@ func New(d Deps) http.Handler {
 		}
 		if d.PriceRefreshHandler != nil {
 			r.Method(http.MethodPost, "/price-refresh", d.PriceRefreshHandler)
+		}
+		if d.HoldingDeleteHandler != nil {
+			r.Method(http.MethodDelete, "/holdings/{code}", d.HoldingDeleteHandler)
 		}
 	})
 	return r

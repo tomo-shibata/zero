@@ -40,3 +40,10 @@ FROM holdings
 WHERE user_id = sqlc.arg(user_id)
 GROUP BY stock_code
 ORDER BY stock_code COLLATE "C";
+
+-- name: DeleteHoldingsOf :execrows
+-- 利用者 user_id の、銘柄 stock_code の保有データをすべて消し、消えた件数を返す。銘柄ごとの削除が使う（要件14）。
+-- 他の利用者の保有データは user_id で、同じ利用者の別の銘柄は stock_code で除く。手入力の価格は別のテーブルなので消えない。
+DELETE FROM holdings
+WHERE user_id = sqlc.arg(user_id)
+  AND stock_code = sqlc.arg(stock_code);

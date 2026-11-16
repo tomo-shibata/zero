@@ -122,6 +122,9 @@ func newDeps(pool *pgxpool.Pool, cfg config.API) router.Deps {
 		PriceRefreshHandler: handler.NewPriceRefreshHandler(
 			command.NewRefreshPrices(newFetchClosingPrices(pool), write.NewHoldingRepository(pool)),
 		),
+		HoldingDeleteHandler: handler.NewHoldingDeleteHandler(
+			command.NewDeleteHolding(write.NewHoldingEditRepository(pool)),
+		),
 		DevUserID:    cfg.DevUserID,
 		AllowedHosts: allowedHosts(cfg.Port),
 	}
