@@ -220,8 +220,39 @@ tasks:
       - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/import-trades -csv {{q (.CSV_FILE | default "")}} -user {{q (.USER_ID | default "")}} -workdir {{q .USER_WORKING_DIR}}
         silent: true
 
+  prices:import:
+    desc: 価格の CSV の終値を、今日（日本時間）の終値として登録する（CSV_FILE が必須。同じ銘柄・同じ日の終値は上書きする）
+    summary: |
+      マイグレーションを適用してから（db:migrate）、CSV_FILE の各行の終値を、実行した日（日本時間）を取引日として
+      DATABASE_URL の DB（既定は開発用 DB）に登録する（価格の CSV の登録の要件1〜要件10）。取引日は CSV に書かない。
+        例: task prices:import CSV_FILE=prices.local.csv
+        見本で試す例（リポジトリの直下で実行。銘柄は task db:seed で入れたもの）:
+          task prices:import CSV_FILE=backend/db/seed/prices.example.csv
+      よくある誤りの直し方: Excel では「CSV UTF-8（コンマ区切り）」で保存する（文字コードの誤りになるため）。
+      終値に3桁区切りのカンマ（1,000 など）は使えない（数字だけで書く）。
+      CSV_FILE の相対パスは、task を実行したディレクトリからのパス（backend/ からではない）。絶対パスも使える。
+      見本の CSV は backend/db/seed/prices.example.csv。自分の価格は *.local.csv（git 管理外）に置く。
+      登録は、同じ銘柄・同じ取引日の終値があれば上書きし、なければ足す（ほかの終値・銘柄マスタ・売買履歴は変えない）。
+      銘柄マスタにない銘柄コードの行は、誤りにせず飛ばして標準出力に出す。
+      CSV に誤りが1つでもあれば、誤りをすべて標準エラーに出して、何も変えずに終わる。
+      成功は終了コード 0。誤りのときは、cmd/import-prices が 1 で終わるが、task は失敗したコマンドの終了コードを既定で 201 にして返す
+      （task -x prices:import で実行すると 1 のまま返る）。成否は 0 かどうかで判断する。
+      CSV の書き方（見出し・列・誤りの文言）は docs/requirements/price-import.md の要件4〜要件8 と「CSV の誤りの文言」。
+    # マイグレーションを先に適用するのは、未適用の DB に登録して、テーブルがないと失敗しないようにするため（trades:import と同じ）。
+    # db:up は db:migrate の deps にあるので、ここには書かない。
+    deps: [db:migrate]
+    dir: backend
+    cmds:
+      # requires: を使わないのは、CSV_FILE がないときに、task が独自の文言で止まらず、
+      # 空のまま cmd/import-prices に渡して「CSV_FILE を指定してください」を出させるため（プラン 4.5）。
+      # CSV_FILE・USER_WORKING_DIR（task を実行したディレクトリ）は q で引用して渡す（空白や & ; があっても1つの値にするため）。
+      # 未設定の変数は default "" で空にする（未設定の変数を q に渡すとテンプレートが失敗するため）。
+      # DATABASE_URL の決め方と渡し方、silent にする理由は db:migrate と同じ。
+      - cmd: DATABASE_URL={{q (.DATABASE_URL | default .DEV_DATABASE_URL)}} go run ./cmd/import-prices -csv {{q (.CSV_FILE | default "")}} -workdir {{q .USER_WORKING_DIR}}
+        silent: true
+
   backend:build:
-    desc: Go のコマンド（api・migrate・fetch-prices・import-trades）をビルドして backend/build/ に置く（build/ は git 管理外）
+    desc: Go のコマンド（api・migrate・fetch-prices・import-trades・import-prices）をビルドして backend/build/ に置く（build/ は git 管理外）
     dir: backend
     cmds:
       - go build -o build/ ./cmd/...
