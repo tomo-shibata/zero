@@ -17,7 +17,7 @@ type HoldingCardProps = {
   holding: Holding
   /** 「⋯」のメニューの「削除」が選ばれたときに呼ばれる。確認のダイアログを開くのは呼び出し側。 */
   onDelete: (holding: Holding) => void
-  /** <li> に足す属性・ref・style。並べ替えの dnd-kit の属性を、HoldingCardList が渡す（カード自身は並べ替えを知らない）。 */
+  /** <li> に足す属性・イベント・style。並べ替えのものを、HoldingCardList が渡す（カード自身は並べ替えを知らない）。 */
   liProps?: ComponentProps<'li'>
 }
 

@@ -6,7 +6,7 @@ import {
   type StockSeed,
   type TradeSeed,
 } from '../fixtures/db'
-import { cardList, holdingCard, holdingCards, summaryRegion } from '../fixtures/holdings-page'
+import { cardCode, cardList, holdingCard, holdingCards, summaryRegion } from '../fixtures/holdings-page'
 
 // 仕様: カード表示の要件 docs/requirements/holdings-cards.md の要件17〜23・要件29・要件30 と、成功基準の基準8（PR② の部分）・基準19〜21・基準23（E2E の補助）・基準31・基準35（E2E）。
 // テスト計画: プラン docs/plans/holdings-cards/plan.md 5.1（E2E の共通の決まり）と 5.3 PR② の E2E の行。
@@ -15,7 +15,7 @@ import { cardList, holdingCard, holdingCards, summaryRegion } from '../fixtures/
 //   - 並べ替えた後に開き直すテストは、置く操作の前に page.waitForResponse（PUT /api/holding-order・204）を仕掛け、それを待ってから開き直す。
 //     応答の要求の本文 {"codes":[...]} が期待した並びであることも確かめる。
 //   - 並びは <ul aria-label="保有株式"> の <li> の DOM の順で読む（ドラッグ中だけは位置で読む）。
-// 画面の構造: プラン 4.4（PR②）。読み上げの文は dnd-kit のライブリージョン（role="status" aria-live="assertive"）に出る
+// 画面の構造: プラン 4.4（PR②）。読み上げの文は HoldingCardList が持つライブリージョン（role="status" aria-live="assertive"）に出る
 //   （価格の今すぐ更新の role="status" の領域と区別するため、aria-live も指定して探す）。保存の失敗は role="alert" で「並びの保存に失敗しました」をカードの並びの上に出す。
 //   カード（<li>）は tabIndex=0 で、キーボードの始める・置くはスペース、取り消しは Esc。
 // 実行の前提: stock-holdings のプラン 4.5「E2E」（zero_e2e、API は利用者A で起動、beforeEach でデータを入れ替える）。
@@ -86,7 +86,39 @@ async function visualOrder(page: Page): Promise<string[]> {
     .map((box) => box.code)
 }
 
-/** 読み上げ用のライブリージョン（dnd-kit。価格の今すぐ更新の role="status" とは aria-live で区別する）。 */
+/** 各カードの左上の位置（銘柄コードごと）。 */
+async function cardPositions(page: Page): Promise<Record<string, { x: number; y: number }>> {
+  const entries = await holdingCards(page).evaluateAll((items) =>
+    items.map((item) => {
+      const rect = item.getBoundingClientRect()
+      return [(item.textContent ?? '').trim().slice(0, 4), { x: rect.x, y: rect.y }] as const
+    }),
+  )
+  return Object.fromEntries(entries)
+}
+
+/**
+ * 持ち上げているカード（dragged）以外のカードが、すべて before（持ち上げる前）の位置にあることを待って確かめる
+ * （並びの外では先行表示が元の並びになる。持ち上げたカードはポインターに付いていくので、比べない）。
+ */
+async function expectOthersAtOriginalPositions(
+  page: Page,
+  before: Record<string, { x: number; y: number }>,
+  dragged: string,
+): Promise<void> {
+  const others = Object.keys(before).filter((code) => code !== dragged)
+  await expect
+    .poll(
+      async () => {
+        const now = await cardPositions(page)
+        return others.every((code) => Math.abs(now[code].x - before[code].x) < 1 && Math.abs(now[code].y - before[code].y) < 1)
+      },
+      { message: `${dragged} 以外のカードが、元の位置にある（先行表示が元の並びになっている）` },
+    )
+    .toBe(true)
+}
+
+/** 読み上げ用のライブリージョン（HoldingCardList が持つ。価格の今すぐ更新の role="status" とは aria-live で区別する）。 */
 function liveRegion(page: Page): Locator {
   return page.locator('[role="status"][aria-live="assertive"]')
 }
@@ -196,7 +228,7 @@ test('カード表示の補助（要件17）: ドラッグしている間（離�
 
   await mouseDragTo(page, holdingCard(page, 'AAPL'), await centerOf(holdingCard(page, '6758')))
 
-  // 離す前。dnd-kit は DOM の順を変えず、位置（変形）で動かすので、位置から読む。
+  // 離す前。ドラッグ中は DOM の順を変えず、位置（transform）で動かすので、位置から読む。
   await expect.poll(() => visualOrder(page), { message: 'ドラッグ中の位置から読んだ並び' }).toEqual(['AAPL', '6758', '7203'])
   expect(await domOrder(page), 'ドラッグ中の DOM の順は、置くまで変わらない').toEqual(['6758', '7203', 'AAPL'])
   await page.mouse.up()
@@ -211,6 +243,7 @@ test('カード表示の補助（要件22・基準23 の画面での確かめ）
   await page.goto(HOLDINGS_PATH)
   await expectOrder(page, ['6758', '7203', '9984', 'AAPL'])
 
+  const positionsBefore = await cardPositions(page)
   const apple = await centerOf(holdingCard(page, 'AAPL'))
   const summary = await centerOf(summaryRegion(page))
   await page.mouse.move(apple.x, apple.y)
@@ -220,10 +253,70 @@ test('カード表示の補助（要件22・基準23 の画面での確かめ）
   // 並びの外へ出ると読み上げは消えるので、動かし始めの直後に確かめる。
   await expect(liveRegion(page)).toContainText('持ち上げました')
   await page.mouse.move(summary.x, summary.y, { steps: 20 })
+  // 離す前に、見た目の並びが元に戻っている（並びの外では、先行表示が元の並びになる。離したときの結果だけを見ない）。
+  // 持ち上げた AAPL はマウスに付いていくので、ほかのカードが元の位置にあることで確かめる。
+  await expectOthersAtOriginalPositions(page, positionsBefore, 'AAPL')
   await page.mouse.up()
 
   await expectOrder(page, ['6758', '7203', '9984', 'AAPL'])
   await proveNoPutSoFar(page, saves, ['6758', '7203', '9984', 'AAPL'])
+})
+
+test('カード表示の補助（要件22。マウスで Esc）: AAPL を 6758 の上まで動かして先行表示（AAPL、6758、7203）を確かめてから Esc を押すと、「並べ替えを取り消しました。」が出て、見た目の並びが元に戻る。そのままマウスを離しても、並びは元のままで PUT は送られない', async ({ page }) => {
+  const saves = recordSaves(page)
+  await seedHoldings(['6758', '7203', 'AAPL'])
+  await page.goto(HOLDINGS_PATH)
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+
+  await mouseDragTo(page, holdingCard(page, 'AAPL'), await centerOf(holdingCard(page, '6758')))
+  await expect.poll(() => visualOrder(page), { message: 'ドラッグ中の位置から読んだ並び' }).toEqual(['AAPL', '6758', '7203'])
+  await page.keyboard.press('Escape')
+
+  await expect(liveRegion(page)).toHaveText('並べ替えを取り消しました。')
+  await expect.poll(() => visualOrder(page), { message: '取り消した後の位置から読んだ並び' }).toEqual(['6758', '7203', 'AAPL'])
+  // 取り消した後にマウスを離しても、置かれない。
+  await page.mouse.up()
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+  await expect.poll(() => visualOrder(page), { message: '離した後の位置から読んだ並び' }).toEqual(['6758', '7203', 'AAPL'])
+  await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
+})
+
+test('カード表示の補助（要件21・要件22。文字のドラッグ）: カードの銘柄コードをダブルクリックして文字を選び、その上で押してドラッグして放し（ブラウザの文字のドラッグ）、そのあとボタンを押さずにマウスを動かしても、並びが変わらず、「持ち上げました」も出ず、PUT も送られない', async ({ page }) => {
+  const saves = recordSaves(page)
+  await seedHoldings(['6758', '7203', 'AAPL'])
+  await page.goto(HOLDINGS_PATH)
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+
+  await cardCode(holdingCard(page, 'AAPL'), 'AAPL').dblclick()
+  // 続けて押すと3回続けてのクリック（段落を選ぶ）になってしまうので、連続のクリックの間隔（0.5秒）より長く待つ。
+  await page.waitForTimeout(700)
+  const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+  expect(selected, '前提: ダブルクリックで銘柄コードの文字が選ばれている').toBe('AAPL')
+
+  // 選んだ文字の上で押して、別のカードの上までドラッグして放す（ブラウザの文字のドラッグ）。
+  // Chromium は 4px 動くと文字のドラッグを始める（dragstart）ので、最初は 1px ずつ動かす（一気に動かすと、こちらのドラッグが先に始まってしまい、文字のドラッグにならない）。
+  const from = await page.evaluate(() => {
+    const rect = window.getSelection()?.getRangeAt(0).getBoundingClientRect()
+    if (rect === undefined) throw new Error('選んだ文字の位置を取れない')
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+  })
+  const to = await centerOf(holdingCard(page, '6758'))
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  for (let step = 1; step <= 4; step += 1) {
+    await page.mouse.move(from.x + step, from.y)
+  }
+  await page.mouse.move(to.x, to.y, { steps: 10 })
+  await page.mouse.up()
+  // その後、ボタンを押さずに動かす（取りこぼした mouseup のせいで、ドラッグが始まらない）。
+  await page.mouse.move(to.x + 40, to.y + 40, { steps: 5 })
+  await page.mouse.move(to.x + 80, to.y, { steps: 5 })
+  await page.waitForTimeout(200)
+
+  await expect(liveRegion(page)).not.toContainText('持ち上げました')
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+  await expect.poll(() => visualOrder(page), { message: '位置から読んだ並び' }).toEqual(['6758', '7203', 'AAPL'])
+  await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
 })
 
 // =====================================================================================================
@@ -252,6 +345,8 @@ test('カード表示の基準21（要件19・要件20・要件23）: 6758・720
 
   await expect(liveRegion(page)).toHaveText('AAPL Appleを1番目に置きました。')
   await expectOrder(page, ['AAPL', '6758', '7203', '9984'])
+  // 置いた後も、AAPL のカードにフォーカスがある（DOM の順が変わっても、キーボードの利用者が続けて操作できる）。
+  await expect(holdingCard(page, 'AAPL')).toBeFocused()
   await expectSaved(await saved, ['AAPL', '6758', '7203', '9984'])
   await page.reload()
   await expectOrder(page, ['AAPL', '6758', '7203', '9984'])
@@ -329,6 +424,19 @@ test('カード表示の補助（要件19）: 3列で、2行目の先頭の AAPL
   await expectSaved(await saved, ['6758', '7203', 'AAPL', '9984'])
 })
 
+test('カード表示の補助（要件19。フォーカス）: 先頭の 6758 を スペース、→、→、→、スペース で末尾へ置くと、並びは 7203、9984、AAPL、6758 になり、置いた後も 6758 のカードにフォーカスがある（DOM の順が変わって、置いたカード自身が動かされても、フォーカスが外れない）', async ({ page }) => {
+  await seedHoldings(['6758', '7203', '9984', 'AAPL'])
+  await page.goto(HOLDINGS_PATH)
+  await expectOrder(page, ['6758', '7203', '9984', 'AAPL'])
+
+  const saved = waitForSave(page)
+  await liftMoveDrop(page, '6758', ['ArrowRight', 'ArrowRight', 'ArrowRight'], ['7203', '9984', 'AAPL', '6758'])
+
+  await expectOrder(page, ['7203', '9984', 'AAPL', '6758'])
+  await expect(holdingCard(page, '6758')).toBeFocused()
+  await expectSaved(await saved, ['7203', '9984', 'AAPL', '6758'])
+})
+
 test('カード表示の補助（要件19）: 先頭のカードで スペース、←、スペース、末尾のカードで スペース、→、スペース としても、並びは変わらず PUT も送られない', async ({ page }) => {
   const saves = recordSaves(page)
   await seedHoldings(['6758', '7203', '9984', 'AAPL'])
@@ -382,6 +490,46 @@ test('カード表示の補助（要件19・要件22。判断9）: スペース�
   await expect.poll(() => visualOrder(page), { message: '取り消した後の位置から読んだ並び' }).toEqual(['6758', '7203', 'AAPL'])
   await expectOrder(page, ['6758', '7203', 'AAPL'])
   await expect(holdingCard(page, 'AAPL')).toBeFocused()
+  await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
+})
+
+test('カード表示の補助（要件19・要件22。画面の大きさ）: キーボードで AAPL を持ち上げ、画面の高さだけ変えても持ち上げたまま（取り消しの文は出ない）。幅を変えると「並べ替えを取り消しました。」が出て、並びは元のままで PUT は送られない', async ({ page }) => {
+  const saves = recordSaves(page)
+  await seedHoldings(['6758', '7203', 'AAPL'])
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto(HOLDINGS_PATH)
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+
+  await holdingCard(page, 'AAPL').focus()
+  await page.keyboard.press('Space')
+  await expect(liveRegion(page)).toHaveText(PICKED_UP_APPLE)
+
+  // 高さだけ変える: 続ける。resize の処理が走るのを少し待ってから確かめる。
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.waitForTimeout(300)
+  await expect(liveRegion(page)).toHaveText(PICKED_UP_APPLE)
+
+  // 幅を変える: 取り消す（測っておいたマスが合わなくなるため）。
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await expect(liveRegion(page)).toHaveText('並べ替えを取り消しました。')
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+  await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
+})
+
+test('カード表示の補助（要件19・要件22。フォーカスの移動）: キーボードで AAPL を持ち上げてから、マウスで見出し「合計」をクリックしてフォーカスを移すと、「並べ替えを取り消しました。」が出て、並びは元のままで PUT は送られない', async ({ page }) => {
+  const saves = recordSaves(page)
+  await seedHoldings(['6758', '7203', 'AAPL'])
+  await page.goto(HOLDINGS_PATH)
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
+
+  await holdingCard(page, 'AAPL').focus()
+  await page.keyboard.press('Space')
+  await expect(liveRegion(page)).toHaveText(PICKED_UP_APPLE)
+  await page.getByRole('heading', { name: '合計', level: 2, exact: true }).click()
+
+  await expect(liveRegion(page)).toHaveText('並べ替えを取り消しました。')
+  await expect.poll(() => visualOrder(page), { message: '取り消した後の位置から読んだ並び' }).toEqual(['6758', '7203', 'AAPL'])
+  await expectOrder(page, ['6758', '7203', 'AAPL'])
   await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
 })
 
@@ -736,5 +884,87 @@ test.describe('タッチの画面（幅 390px）', () => {
     await expectOrder(page, ['6758', '7203', 'AAPL'])
     await expect(liveRegion(page)).not.toContainText('持ち上げました')
     await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
+  })
+
+  test('カード表示の補助（要件22。タッチで並びの外）: AAPL を 400ms 押し続けてから合計の欄の上へ動かして離すと、見た目の並びは元に戻り、並びは同じで、PUT は送られない', async ({ page }) => {
+    const saves = recordSaves(page)
+    await seedHoldings(['6758', '7203', 'AAPL'])
+    await page.setViewportSize({ width: 390, height: 1800 })
+    await page.goto(HOLDINGS_PATH)
+    await expectOrder(page, ['6758', '7203', 'AAPL'])
+    const touch = await touchSession(page)
+
+    const positionsBefore = await cardPositions(page)
+    const apple = await centerOf(holdingCard(page, 'AAPL'))
+    const summary = await centerOf(summaryRegion(page))
+    await touch.start(apple.x, apple.y)
+    await page.waitForTimeout(400)
+    // ドラッグが始まっていたこと（始まっていないと、離しても何も起きないので、確かめたいことを確かめられない）。
+    await expect(liveRegion(page)).toContainText('持ち上げました')
+    await touchMoveSteps(page, touch, apple, summary, 12, 20)
+    // 離す前に、見た目の並びが元に戻っている（持ち上げた AAPL は指に付いていくので、ほかのカードが元の位置にあることで確かめる）。
+    await expectOthersAtOriginalPositions(page, positionsBefore, 'AAPL')
+    await touch.end()
+
+    await expectOrder(page, ['6758', '7203', 'AAPL'])
+    await expect.poll(() => visualOrder(page), { message: '離した後の位置から読んだ並び' }).toEqual(['6758', '7203', 'AAPL'])
+    await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
+  })
+
+  test('カード表示の補助（要件18・要件22。画面の端での自動スクロール）: 6758・7203・AAPL を保有し、末尾までスクロールして 6758 が画面の上の外にあるとき、AAPL を 400ms 押し続けてから指を画面の上端から 48px 以内（y=10）へ動かして止めると、6758 のカードの中心が画面に入るまで画面が上へスクロールし、6758 の中心へ動かして離すと、並びは AAPL、6758、7203 になり、保存の本文も同じ', async ({ page }) => {
+    const saves = recordSaves(page)
+    await seedHoldings(['6758', '7203', 'AAPL'])
+    // 390×844 では、末尾までスクロールしても 6758 のカードの下側がまだ画面に残る（下端が上から 170px）ので、自動スクロールなしで 6758 に届いてしまう。
+    // 末尾までスクロールしたときに 6758 が画面の上の外になる高さ（600px）にする。
+    await page.setViewportSize({ width: 390, height: 600 })
+    await page.goto(HOLDINGS_PATH)
+    await expectOrder(page, ['6758', '7203', 'AAPL'])
+    const touch = await touchSession(page)
+
+    // 前提: 末尾までスクロールすると、6758 のカードは画面の上の外にあり（自動スクロールしないと届かない）、AAPL は画面に入っている。
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    await expect.poll(() => page.evaluate(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1), { message: '末尾までスクロールした' }).toBe(true)
+    const sonyBefore = await holdingCard(page, '6758').boundingBox()
+    if (sonyBefore === null) throw new Error('6758 のカードの位置を取れない')
+    expect(sonyBefore.y + sonyBefore.height, '前提: 6758 のカードは画面の上の外にある').toBeLessThanOrEqual(0)
+    const scrollAtEnd = await page.evaluate(() => window.scrollY)
+    /** 6758 のカード（もとの位置）の中心の、今の画面の上からの位置。 */
+    const sonyCenterY = async (): Promise<number> =>
+      sonyBefore.y + sonyBefore.height / 2 + scrollAtEnd - (await page.evaluate(() => window.scrollY))
+    const apple = await centerOf(holdingCard(page, 'AAPL'))
+    const viewportHeight = await page.evaluate(() => window.innerHeight)
+    expect(apple.y, '前提: AAPL のカードは画面に入っている').toBeGreaterThan(48)
+    expect(apple.y, '前提: AAPL のカードは画面に入っている').toBeLessThan(viewportHeight - 48)
+
+    // 400ms 押し続けて持ち上げ、画面の上端から 48px 以内（y=10）へ動かして止める。
+    await touch.start(apple.x, apple.y)
+    await page.waitForTimeout(400)
+    await expect(liveRegion(page)).toContainText('持ち上げました')
+    const scrollAtLift = await page.evaluate(() => window.scrollY)
+    await touchMoveSteps(page, touch, apple, { x: apple.x, y: 10 }, 10, 20)
+
+    // 指を止めたまま、画面が上へスクロールして、6758 のカード（もとの位置）の中心が画面に入る（スクロールの位置が小さくなる）。
+    // ドラッグ中は、先行表示でカードが動くので、カードの今の位置ではなく、持ち上げる前に測ったもとの位置（ページの座標）で見る。
+    const MARGIN_PX = 60 // 画面の上下の端の帯（48px）の外に入るまで待つ
+    await expect
+      .poll(async () => (await sonyCenterY()) > MARGIN_PX && (await sonyCenterY()) < viewportHeight - MARGIN_PX, {
+        message: '6758 のカードの中心が画面に入るまで、画面が上へスクロールする',
+        timeout: 15000,
+        intervals: [50],
+      })
+      .toBe(true)
+    // 動かす先は、中心が画面に入った直後の位置（指が帯の外へ出ると、自動スクロールは止まる）。
+    const target = { x: sonyBefore.x + sonyBefore.width / 2, y: await sonyCenterY() }
+    expect(await page.evaluate(() => window.scrollY), '画面は上へスクロールした').toBeLessThan(scrollAtLift)
+
+    // 6758 の中心へ動かして離す。
+    const saved = waitForSave(page)
+    await touch.move(target.x, target.y)
+    await expect.poll(() => visualOrder(page), { message: '6758 の上へ動かしたときの位置から読んだ並び' }).toEqual(['AAPL', '6758', '7203'])
+    await touch.end()
+
+    await expectOrder(page, ['AAPL', '6758', '7203'])
+    await expectSaved(await saved, ['AAPL', '6758', '7203'])
+    expect(saves).toEqual([['AAPL', '6758', '7203']])
   })
 })
