@@ -39,15 +39,15 @@ func (r *ClosingPriceRepository) Save(ctx context.Context, p model.ClosingPrice)
 	if err := r.queries.UpsertClosingPrice(ctx, sqlcgen.UpsertClosingPriceParams{
 		StockCode:   p.StockCode,
 		TradingDate: pgtype.Date{Time: tradingDate, Valid: true},
-		ClosePrice:  numericFromTenths(p.PriceTenths),
+		ClosePrice:  numericFromHundredths(p.PriceHundredths),
 	}); err != nil {
 		return fmt.Errorf("stock_prices に保存できません: %w", err)
 	}
 	return nil
 }
 
-// numericFromTenths は、0.1円単位の整数 tenths を、円の NUMERIC にする（tenths × 10^-1）。
-// 浮動小数点を通さないので、値が変わらない（プラン 6章の判断1）。DB には小数第1位までの値（例: 3000.0）で保存される。
-func numericFromTenths(tenths int64) pgtype.Numeric {
-	return pgtype.Numeric{Int: big.NewInt(tenths), Exp: -1, Valid: true}
+// numericFromHundredths は、0.01 単位の整数 hundredths を、NUMERIC にする（hundredths × 10^-2。円もドルも同じ）。
+// 浮動小数点を通さないので、値が変わらない（プラン 6章の判断1）。DB には小数第2位までの値（例: 3000.00、180.25）で保存される。
+func numericFromHundredths(hundredths int64) pgtype.Numeric {
+	return pgtype.Numeric{Int: big.NewInt(hundredths), Exp: -2, Valid: true}
 }

@@ -105,7 +105,7 @@ type HoldingsContentProps = {
 }
 
 /**
- * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら合計の領域と、価格の今すぐ更新と、表（要件 FR-6・FR-7、要件16）。
+ * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら通貨ごとの合計の領域と、価格の今すぐ更新と、表（要件 FR-6・FR-7、要件16）。
  * 0件のときは今すぐ更新を出さない（値段の更新の要件1）。
  */
 function HoldingsContent({ list, titleId, onDelete }: HoldingsContentProps) {
@@ -114,10 +114,7 @@ function HoldingsContent({ list, titleId, onDelete }: HoldingsContentProps) {
   }
   return (
     <>
-      <HoldingsTotal
-        totalValuation={list.totalValuation}
-        excludesUnpriced={list.totalExcludesUnpriced}
-      />
+      {list.totals.length > 0 && <HoldingsTotal totals={list.totals} />}
       <PriceRefreshPanel />
       <HoldingsTable holdings={list.holdings} labelledBy={titleId} onDelete={onDelete} />
     </>

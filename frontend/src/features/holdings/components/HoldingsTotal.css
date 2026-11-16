@@ -11,6 +11,18 @@
   color: var(--color-text-muted);
 }
 
+.holdings-total__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.holdings-total__item + .holdings-total__item {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
 .holdings-total__amount {
   margin: 0.25rem 0 0;
   font-size: 1.75rem;

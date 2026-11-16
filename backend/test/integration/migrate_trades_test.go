@@ -16,7 +16,7 @@ import (
 // 仕様: プラン（docs/plans/trade-history/plan.md）4.2（00005_replace_holdings_with_trades.sql。up は trades を作って holdings を消し、
 // down は holdings を作り直して trades を消す。中身は戻らない）と 5.3「マイグレーション」（PR①）:
 // 00005 の up の後に holdings がなく trades がある。down → up が通る。
-// testdb.New は、マイグレーションをすべて適用した DB を返す（最新の版が 00005 になる）。
+// testdb.New は、マイグレーションをすべて適用した DB を返す（PR② で最新の版が 00006 になる。00005 を戻すには、先に 00006 を戻す）。
 
 // tableExists は、スキーマ public にテーブル name があるかを返す。
 func tableExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
@@ -48,7 +48,7 @@ func Test補助_5_3_マイグレーション00005のupの後はholdingsがなく
 }
 
 // 4.2・5.3: 00005 の down は holdings を作り直して trades を消し（中身は戻らない）、もう一度 up を流すと trades ができて holdings が消える。
-// 手順: trades に1行入れる → 最新のマイグレーション（00005）を1つ戻す → holdings があって trades がなく、holdings に行を入れられる
+// 手順: trades に1行入れる → 最新のマイグレーション（00006。PR②）を1つ戻し、次に 00005 を1つ戻す → holdings があって trades がなく、holdings に行を入れられる
 // → マイグレーションを適用し直す → holdings がなく trades がある（down の前の trades の行は戻らず、空）。
 func Test補助_5_3_マイグレーション00005はdownの後にupし直せる(t *testing.T) {
 	t.Parallel()
@@ -67,12 +67,20 @@ func Test補助_5_3_マイグレーション00005はdownの後にupし直せる(
 		t.Fatalf("goose の Provider を作れない: %v", err)
 	}
 
+	// 最新は 00006（通貨と終値の精度。PR②）。先にそれを戻す。
 	result, err := provider.Down(t.Context())
+	if err != nil {
+		t.Fatalf("00006 を戻せない（down が通らない）: %v", err)
+	}
+	if result.Source.Version != 6 {
+		t.Fatalf("戻したマイグレーションの版: got %d, want 6（00006_add_currency.sql が最新）", result.Source.Version)
+	}
+	result, err = provider.Down(t.Context())
 	if err != nil {
 		t.Fatalf("00005 を戻せない（down が通らない）: %v", err)
 	}
 	if result.Source.Version != 5 {
-		t.Fatalf("戻したマイグレーションの版: got %d, want 5（00005_replace_holdings_with_trades.sql が最新）", result.Source.Version)
+		t.Fatalf("戻したマイグレーションの版: got %d, want 5（00005_replace_holdings_with_trades.sql）", result.Source.Version)
 	}
 	assertTables(t, pool, true, false)
 	// 作り直した holdings に、もとの形（利用者・銘柄コード・保有数量・取得価格）で行を入れられる。

@@ -23,7 +23,10 @@ import (
 )
 
 // 売買履歴への作り変え（docs/plans/trade-history/plan.md 5.2・5.3。PR①）: 前提の保有データ（holdings）は売買履歴（買い）で作る
-// （insertBuy）。API の形はそのまま（PR② で通貨を足す）。偽の読み取りは ListHoldingRows → ListTradeRows。
+// （insertBuy）。偽の読み取りは ListHoldingRows → ListTradeRows。
+// PR②（4.3・4.6・5.3・5.5）: 行に currency を足し、金額（単価・評価額・合計評価額）はすべて文字列にし、合計評価額は通貨ごとの配列 totals にする。
+// 単価は円が小数1桁（"2500.0"）・ドルが小数2桁（"150.25"）、評価額は円が整数（"300000"）・ドルが小数2桁（"1800.00"）。
+// totals は保有のある通貨だけを円、ドルの順に入れ、0件なら空の配列。円の終値に 0.1円より細かい値があれば 500（黙って切り捨てない）。
 // 保有数量が途中で負になる売買履歴を SQL で入れると、API は 500 と internal_error（5.3、判断6）。
 //
 // 仕様: GET /api/holdings の応答（プラン docs/plans/stock-holdings/plan.md 4.4「API」）。
@@ -80,8 +83,8 @@ func getHoldingsFromDB(t *testing.T, pool *pgxpool.Pool) *httptest.ResponseRecor
 
 // assertJSONResponse は、応答のステータスが wantStatus で、本文が JSON として want と同じであることを確かめる。
 // 同じとは、キーの集まり・値・値の種類（文字列／数／真偽値／null）・配列の順がすべて同じこと。
-// 数は書かれた字面（json.Number）のまま比べるので、300000 と 300000.0、"2500.0" と 2500 と "2500" は別のものになる
-// （4.4: 単価は小数第1位を1桁付けた文字列、評価額と合計は円の整数、価格がなければ null）。
+// 数は書かれた字面（json.Number）のまま比べるので、300000 と "300000"、"2500.0" と 2500 と "2500" は別のものになる
+// （4.3: 単価は円が小数1桁・ドルが小数2桁の文字列、評価額と合計は円が整数・ドルが小数2桁の文字列、価格がなければ null）。
 func assertJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, want string) {
 	t.Helper()
 	body := rec.Body.Bytes()
@@ -139,18 +142,17 @@ func TestAC1_API_価格のある銘柄の行を単価は小数第1位付きの�
 
 	assertJSONResponse(t, rec, http.StatusOK, `{
 		"holdings": [
-			{"code": "7203", "name": "トヨタ自動車", "quantity": 100,
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": 300000}
+			 "priceDate": "2026-10-06", "valuation": "300000"}
 		],
-		"totalValuation": 300000,
-		"totalExcludesUnpriced": false
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
 	}`)
 }
 
 // AC-7・AC-8a（FR-6）の API 部分:
 // 利用者Aが 7203 を100株、6758 を10株保有し、両方の価格（3,000円・3,500円）が保存済み
-// → 合計評価額は 335,000円（AC-7）。全銘柄に価格があるので、注記のフラグ totalExcludesUnpriced は false（AC-8a）。
+// → 合計評価額は 335,000円（AC-7）。全銘柄に価格があるので、totals の円の行の excludesUnpriced は false（AC-8a）。
 // 6758 の取得価格は AC に指定がないので 3,200円 とした。並び順は銘柄コードの昇順（FR-5）。
 func TestAC7_AC8a_API_全銘柄に価格があれば合計評価額は評価額の合計で注記のフラグはfalse(t *testing.T) {
 	t.Parallel()
@@ -164,22 +166,21 @@ func TestAC7_AC8a_API_全銘柄に価格があれば合計評価額は評価額�
 
 	assertJSONResponse(t, rec, http.StatusOK, `{
 		"holdings": [
-			{"code": "6758", "name": "ソニーグループ", "quantity": 10,
+			{"code": "6758", "name": "ソニーグループ", "currency": "JPY", "quantity": 10,
 			 "acquisitionPrice": "3200.0", "currentPrice": "3500.0",
-			 "priceDate": "2026-10-06", "valuation": 35000},
-			{"code": "7203", "name": "トヨタ自動車", "quantity": 100,
+			 "priceDate": "2026-10-06", "valuation": "35000"},
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": 300000}
+			 "priceDate": "2026-10-06", "valuation": "300000"}
 		],
-		"totalValuation": 335000,
-		"totalExcludesUnpriced": false
+		"totals": [{"currency": "JPY", "valuation": "335000", "excludesUnpriced": false}]
 	}`)
 }
 
 // AC-8（FR-6）・AC-11（FR-10）の API 部分:
 // 利用者Aが 7203 を100株（価格保存済み）と 9984（価格は一度も保存されていない）を保有している
 // → 9984 の行の currentPrice・priceDate・valuation は null（AC-11。画面では「取得できません」）、
-// 7203 の行は AC-1 のとおり。合計評価額は 7203 の分だけの 300,000円で、totalExcludesUnpriced は true
+// 7203 の行は AC-1 のとおり。合計評価額は 7203 の分だけの 300,000円で、totals の円の行の excludesUnpriced は true
 // （AC-8。画面では「価格を取得できない銘柄を含みません」）。
 // 9984 の保有数量と取得価格は AC に指定がないので 10株・9,000円 とした。
 func TestAC8_AC11_API_価格のない銘柄はnullで返し合計評価額に含めず注記のフラグはtrue(t *testing.T) {
@@ -193,21 +194,20 @@ func TestAC8_AC11_API_価格のない銘柄はnullで返し合計評価額に含
 
 	assertJSONResponse(t, rec, http.StatusOK, `{
 		"holdings": [
-			{"code": "7203", "name": "トヨタ自動車", "quantity": 100,
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": 300000},
-			{"code": "9984", "name": "ソフトバンクグループ", "quantity": 10,
+			 "priceDate": "2026-10-06", "valuation": "300000"},
+			{"code": "9984", "name": "ソフトバンクグループ", "currency": "JPY", "quantity": 10,
 			 "acquisitionPrice": "9000.0", "currentPrice": null,
 			 "priceDate": null, "valuation": null}
 		],
-		"totalValuation": 300000,
-		"totalExcludesUnpriced": true
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": true}]
 	}`)
 }
 
 // AC-9（FR-7）の API 部分と、補助 FR-7（SR-5）の API、補助 FR-1（PR② の TC-05）:
 // 利用者Aが株式を1件も保有していない（DB には利用者Bの 6758（10株・3,200円）の保有がある）
-// → {"holdings":[],"totalValuation":0,"totalExcludesUnpriced":false}（holdings は null ではなく空の配列。4.4）。
+// → {"holdings":[],"totals":[]}（holdings は null ではなく空の配列。4.4）。
 // 利用者Bの保有は A の応答に出ない（API の経路でも、ログイン中の利用者の保有データだけを読む。FR-1）。
 func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者の保有があっても空の配列と合計0を返す(t *testing.T) {
 	t.Parallel()
@@ -216,7 +216,7 @@ func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者�
 
 	rec := getHoldingsFromDB(t, pool)
 
-	assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totalValuation":0,"totalExcludesUnpriced":false}`)
+	assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totals":[]}`)
 }
 
 // 補助 FR-8（TC-11）: 現在の価格は、保存済みの価格のうち最新の取引日の終値で、価格の基準日はその取引日。
@@ -224,7 +224,7 @@ func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者�
 // （最新の行が、最初に入れた行・最後に入れた行・最も古い行・終値の最も高い行のどれとも違うようにして、
 // 「入れた順の最初／最後を読む」「取引日の古い行を選ぶ」「終値の最大を選ぶ」誤りを見分けるため。
 // PR② ステップ6 の TC-01、2ラウンド目の PR2_TC08 で 10-02 の終値を 2,800円 から 3,100円 に変えた）。
-// → 1行・quantity 100・currentPrice "3000.0"・priceDate "2026-10-06"・valuation 300000。
+// → 1行・quantity 100・currentPrice "3000.0"・priceDate "2026-10-06"・valuation "300000"（文字列）。
 func TestFR8_TC11_PR2_TC08_API_現在の価格は最新の取引日の終値で行は増えない(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
@@ -237,19 +237,18 @@ func TestFR8_TC11_PR2_TC08_API_現在の価格は最新の取引日の終値で�
 
 	assertJSONResponse(t, rec, http.StatusOK, `{
 		"holdings": [
-			{"code": "7203", "name": "トヨタ自動車", "quantity": 100,
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": 300000}
+			 "priceDate": "2026-10-06", "valuation": "300000"}
 		],
-		"totalValuation": 300000,
-		"totalExcludesUnpriced": false
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
 	}`)
 }
 
 // 補助 FR-4・FR-12・FR-19（TC-14）: 桁数を指定しない NUMERIC は書いた桁（scale）のまま保存されるので、
 // DB から読むときに scale が 0 でも 1 でも正しく 0.1円単位にする（プラン 4.2）。
 // 7203 を 1株・価格 2000（scale 0）と 2株・2001.0（scale 1）で買い、終値は 1234.5
-// → quantity 3・acquisitionPrice "2000.7"・currentPrice "1234.5"・valuation 3703・totalValuation 3703。
+// → quantity 3・acquisitionPrice "2000.7"・currentPrice "1234.5"・valuation "3703"・totals の円の行の valuation "3703"（どちらも文字列）。
 func TestFR4_FR12_FR19_TC14_API_scaleの違う単価も正しく読んで集約する(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
@@ -261,12 +260,11 @@ func TestFR4_FR12_FR19_TC14_API_scaleの違う単価も正しく読んで集約�
 
 	assertJSONResponse(t, rec, http.StatusOK, `{
 		"holdings": [
-			{"code": "7203", "name": "トヨタ自動車", "quantity": 3,
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 3,
 			 "acquisitionPrice": "2000.7", "currentPrice": "1234.5",
-			 "priceDate": "2026-10-06", "valuation": 3703}
+			 "priceDate": "2026-10-06", "valuation": "3703"}
 		],
-		"totalValuation": 3703,
-		"totalExcludesUnpriced": false
+		"totals": [{"currency": "JPY", "valuation": "3703", "excludesUnpriced": false}]
 	}`)
 }
 
@@ -277,7 +275,7 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 	t.Parallel()
 
 	// 7203 を1株・取得価格 0.1、終値 3000.00（scale 2、2026-10-06）
-	// → acquisitionPrice "0.1"・currentPrice "3000.0"・valuation 3000。
+	// → acquisitionPrice "0.1"・currentPrice "3000.0"・valuation "3000"（文字列）。
 	t.Run("取得価格0.1と終値3000.00", func(t *testing.T) {
 		t.Parallel()
 		pool := testdb.New(t)
@@ -288,17 +286,16 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 
 		assertJSONResponse(t, rec, http.StatusOK, `{
 			"holdings": [
-				{"code": "7203", "name": "トヨタ自動車", "quantity": 1,
+				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 1,
 				 "acquisitionPrice": "0.1", "currentPrice": "3000.0",
-				 "priceDate": "2026-10-06", "valuation": 3000}
+				 "priceDate": "2026-10-06", "valuation": "3000"}
 			],
-			"totalValuation": 3000,
-			"totalExcludesUnpriced": false
+			"totals": [{"currency": "JPY", "valuation": "3000", "excludesUnpriced": false}]
 		}`)
 	})
 
 	// 7203 を1株・取得価格 2001.00、終値 1234.50（どちらも scale 2、2026-10-06）
-	// → acquisitionPrice "2001.0"・currentPrice "1234.5"・valuation 1234。
+	// → acquisitionPrice "2001.0"・currentPrice "1234.5"・valuation "1234"（文字列）。
 	t.Run("取得価格2001.00と終値1234.50", func(t *testing.T) {
 		t.Parallel()
 		pool := testdb.New(t)
@@ -309,12 +306,11 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 
 		assertJSONResponse(t, rec, http.StatusOK, `{
 			"holdings": [
-				{"code": "7203", "name": "トヨタ自動車", "quantity": 1,
+				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 1,
 				 "acquisitionPrice": "2001.0", "currentPrice": "1234.5",
-				 "priceDate": "2026-10-06", "valuation": 1234}
+				 "priceDate": "2026-10-06", "valuation": "1234"}
 			],
-			"totalValuation": 1234,
-			"totalExcludesUnpriced": false
+			"totals": [{"currency": "JPY", "valuation": "1234", "excludesUnpriced": false}]
 		}`)
 	})
 }
@@ -363,7 +359,7 @@ func Test判断12_SR6_S1_許可リストにないHostのapiは403でhealthzはHo
 	t.Run("対照_許可リストにあるHostのapi_holdingsは200", func(t *testing.T) {
 		t.Parallel()
 		rec := serveGet(t, h, holdingsPath, allowedHost)
-		assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totalValuation":0,"totalExcludesUnpriced":false}`)
+		assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totals":[]}`)
 	})
 
 	for _, host := range []string{"example.com", allowedHost} {
@@ -407,4 +403,189 @@ func TestPR1_5_3_API_保有数量が負になる売買履歴なら500とinternal
 
 		assertJSONResponse(t, rec, http.StatusOK, emptyListJSON)
 	})
+}
+
+// ---- ドルの銘柄と通貨ごとの合計（docs/plans/trade-history/plan.md 4.3・5.3。PR②） ----
+
+// 基準9 の API 部分（要件1・要件11・要件14）: Aの売買履歴が AAPL「買 150.25ドル 10株 2026-01-10」で、AAPL の価格（180.00ドル・2026-10-06）が保存済み
+// → AAPL の行は「AAPL / Apple / USD / 10株 / "150.25" / "180.00" / 2026-10-06 / "1800.00"」。通貨は銘柄マスタから取る。
+// 合計は ドルの1件だけ（"1800.00"）。単価はドルが小数2桁、評価額はドルが小数2桁の文字列。
+func Test基準9_API_ドルの銘柄の行は通貨USDで単価と評価額を小数2桁の文字列で返す(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertStock(t, pool, "AAPL", "Apple", currencyUSD)
+	insertBuy(t, pool, seedUserA, "AAPL", 10, "150.25")
+	insertClosePrice(t, pool, "AAPL", "2026-10-06", "180.00")
+
+	rec := getHoldingsFromDB(t, pool)
+
+	assertJSONResponse(t, rec, http.StatusOK, `{
+		"holdings": [
+			{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 10,
+			 "acquisitionPrice": "150.25", "currentPrice": "180.00",
+			 "priceDate": "2026-10-06", "valuation": "1800.00"}
+		],
+		"totals": [{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false}]
+	}`)
+}
+
+// 基準10 の API 部分（要件12）: Aの売買履歴が 7203「買 2,500円 100株」と AAPL「買 150.25ドル 10株」で、どちらも価格が保存済み
+// → totals は円、ドルの順に1件ずつ（円 "300000"・ドル "1800.00"、どちらも excludesUnpriced は false）。
+// 銘柄の並びは銘柄コードの昇順（数字で始まる 7203 が先）。ドルの銘柄を先に入れても、totals は円、ドルの順。
+func Test基準10_API_合計は通貨ごとに円ドルの順で返す(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertStock(t, pool, "AAPL", "Apple", currencyUSD)
+	insertBuy(t, pool, seedUserA, "AAPL", 10, "150.25")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertClosePrice(t, pool, "AAPL", "2026-10-06", "180.00")
+	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
+
+	rec := getHoldingsFromDB(t, pool)
+
+	assertJSONResponse(t, rec, http.StatusOK, `{
+		"holdings": [
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
+			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
+			 "priceDate": "2026-10-06", "valuation": "300000"},
+			{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 10,
+			 "acquisitionPrice": "150.25", "currentPrice": "180.00",
+			 "priceDate": "2026-10-06", "valuation": "1800.00"}
+		],
+		"totals": [
+			{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false},
+			{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false}
+		]
+	}`)
+}
+
+// 基準11 の API 部分（要件12・要件13）: Aの売買履歴が 7203「買 2,500円 100株」（価格保存済み）と MSFT「買 400.00ドル 5株」（価格なし）
+// → 円の合計は "300000"（excludesUnpriced false）、ドルの合計は "0.00"（excludesUnpriced true）。MSFT の行は価格の3項目が null。
+func Test基準11_API_ドルの銘柄がすべて価格なしならドルの合計は0_00で注記のフラグはtrue(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertStock(t, pool, "MSFT", "Microsoft", currencyUSD)
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "MSFT", 5, "400.00")
+	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
+
+	rec := getHoldingsFromDB(t, pool)
+
+	assertJSONResponse(t, rec, http.StatusOK, `{
+		"holdings": [
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
+			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
+			 "priceDate": "2026-10-06", "valuation": "300000"},
+			{"code": "MSFT", "name": "Microsoft", "currency": "USD", "quantity": 5,
+			 "acquisitionPrice": "400.00", "currentPrice": null,
+			 "priceDate": null, "valuation": null}
+		],
+		"totals": [
+			{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false},
+			{"currency": "USD", "valuation": "0.00", "excludesUnpriced": true}
+		]
+	}`)
+}
+
+// 5.5: ドルを切り捨てない。AAPL を3株（買 150.25ドル）、終値 180.25ドル → 評価額 "540.75"（円のように1円未満を切り捨てない。要件11）、合計も "540.75"。
+// 終値 0.01ドルの AAPL（1株）→ 単価・評価額・合計は "0.01"（整数部の 0 を落とさない）。
+func Test補助_API_ドルの評価額は切り捨てずに小数2桁の文字列で返す(t *testing.T) {
+	t.Parallel()
+
+	t.Run("終値180.25ドルの3株は540.75", func(t *testing.T) {
+		t.Parallel()
+		pool := testdb.New(t)
+		insertStock(t, pool, "AAPL", "Apple", currencyUSD)
+		insertBuy(t, pool, seedUserA, "AAPL", 3, "150.25")
+		insertClosePrice(t, pool, "AAPL", "2026-10-06", "180.25")
+
+		rec := getHoldingsFromDB(t, pool)
+
+		assertJSONResponse(t, rec, http.StatusOK, `{
+			"holdings": [
+				{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 3,
+				 "acquisitionPrice": "150.25", "currentPrice": "180.25",
+				 "priceDate": "2026-10-06", "valuation": "540.75"}
+			],
+			"totals": [{"currency": "USD", "valuation": "540.75", "excludesUnpriced": false}]
+		}`)
+	})
+
+	t.Run("終値0.01ドルの1株は0.01", func(t *testing.T) {
+		t.Parallel()
+		pool := testdb.New(t)
+		insertStock(t, pool, "AAPL", "Apple", currencyUSD)
+		insertBuy(t, pool, seedUserA, "AAPL", 1, "0.01")
+		insertClosePrice(t, pool, "AAPL", "2026-10-06", "0.01")
+
+		rec := getHoldingsFromDB(t, pool)
+
+		assertJSONResponse(t, rec, http.StatusOK, `{
+			"holdings": [
+				{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 1,
+				 "acquisitionPrice": "0.01", "currentPrice": "0.01",
+				 "priceDate": "2026-10-06", "valuation": "0.01"}
+			],
+			"totals": [{"currency": "USD", "valuation": "0.01", "excludesUnpriced": false}]
+		}`)
+	})
+}
+
+// 5.5・4.7: 円の終値に 0.1円より細かい値（3000.25）を SQL で入れる（DB の CHECK は小数第2位まで許す）と、
+// 一覧の API は黙って切り捨てずに 500 と {"error":"internal_error"}。
+// 対照: 円の終値が 3000.20（0.1円単位）なら 200。
+func Test補助_API_円の終値が0_1円より細かいと500とinternal_errorを返す(t *testing.T) {
+	t.Parallel()
+
+	t.Run("円の終値3000.25は500", func(t *testing.T) {
+		t.Parallel()
+		pool := testdb.New(t)
+		insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+		insertClosePrice(t, pool, "7203", "2026-10-06", "3000.25")
+
+		rec := getHoldingsFromDB(t, pool)
+
+		assertJSONResponse(t, rec, http.StatusInternalServerError, `{"error":"internal_error"}`)
+	})
+
+	t.Run("対照_円の終値3000.20は200", func(t *testing.T) {
+		t.Parallel()
+		pool := testdb.New(t)
+		insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+		insertClosePrice(t, pool, "7203", "2026-10-06", "3000.20")
+
+		rec := getHoldingsFromDB(t, pool)
+
+		assertJSONResponse(t, rec, http.StatusOK, `{
+			"holdings": [
+				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
+				 "acquisitionPrice": "2500.0", "currentPrice": "3000.2",
+				 "priceDate": "2026-10-06", "valuation": "300020"}
+			],
+			"totals": [{"currency": "JPY", "valuation": "300020", "excludesUnpriced": false}]
+		}`)
+	})
+}
+
+// 5.5: 売り切ったドルの銘柄は、一覧にも totals にも出ない。Aが AAPL を買って売り切り（価格なし）、7203 を保有（価格あり）
+// → holdings は 7203 の1行だけで、totals は円の1件だけ（ドルの行も、注記もない）。
+func Test補助_API_売り切ったドルの銘柄はtotalsにも出ない(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertStock(t, pool, "AAPL", "Apple", currencyUSD)
+	insertBuy(t, pool, seedUserA, "AAPL", 10, "150.25")
+	insertTrade(t, pool, seedUserA, "AAPL", "sell", 10, "170.00", "2026-02-10")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
+
+	rec := getHoldingsFromDB(t, pool)
+
+	assertJSONResponse(t, rec, http.StatusOK, `{
+		"holdings": [
+			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
+			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
+			 "priceDate": "2026-10-06", "valuation": "300000"}
+		],
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
+	}`)
 }

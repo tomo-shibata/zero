@@ -4,6 +4,7 @@ import {
   resetHoldingsData,
   type TradeSeed,
   type StockPriceSeed,
+  type StockSeed,
 } from '../fixtures/db'
 
 // 仕様: 要件 docs/requirements/stock-holdings.md（保有株式一覧）の E2E の AC と、補助のテスト。
@@ -235,6 +236,88 @@ test('AC-9: 1件も保有していないとき、「保有株式はありませ�
   await expect(holdingsTable(page)).toHaveCount(0)
 })
 
+// ---- ドルの銘柄（売買履歴の要件 docs/requirements/trade-history.md の基準9〜11。PR②） ----
+// AAPL・MSFT は test.sql にない銘柄なので、銘柄マスタにドル（USD）の銘柄として入れる（プラン 4.7。次のテストの beforeEach で消える）。
+const APPLE: StockSeed = { code: 'AAPL', name: 'Apple', currency: 'USD' }
+const MICROSOFT: StockSeed = { code: 'MSFT', name: 'Microsoft', currency: 'USD' }
+/** AAPL を10株、取得価格150.25ドル。 */
+const APPLE_10: TradeSeed = { code: 'AAPL', side: 'buy', quantity: 10, price: '150.25', tradeDate: BUY_DATE }
+/** AAPL の保存済みの終値（180.00ドル・2026-10-06）。 */
+const APPLE_PRICE: StockPriceSeed = { code: 'AAPL', tradingDate: '2026-10-06', closePrice: '180.00' }
+/** MSFT を5株、取得価格400.00ドル（価格は入れない。ドルの価格なしの銘柄）。 */
+const MICROSOFT_5: TradeSeed = { code: 'MSFT', side: 'buy', quantity: 5, price: '400.00', tradeDate: BUY_DATE }
+
+/** 合計の領域の中の、通貨ごとの行（<li>）。 */
+function totalRows(page: Page): Locator {
+  return totalRegion(page).getByRole('listitem')
+}
+
+test('基準9（要件1・要件11・要件14）: AAPL を「買 150.25ドル 10株」で保有し、価格が保存済みのとき、AAPL の行に「AAPL / Apple / 10株 / 150.25ドル / 180.00ドル / 2026-10-06 / 1,800.00ドル」が表示される', async ({ page }) => {
+  // Given: 利用者Aの売買履歴が AAPL「買 150.25ドル 10株 2026-01-10」で、AAPL の価格（180.00ドル・2026-10-06）が保存済み。
+  await insertHoldingsData({ stocks: [APPLE], trades: [APPLE_10], prices: [APPLE_PRICE] })
+
+  await page.goto(HOLDINGS_PATH)
+
+  await expect(dataCells(holdingRow(page, 'AAPL'))).toHaveText([
+    'AAPL',
+    'Apple',
+    '10株',
+    '150.25ドル',
+    '180.00ドル',
+    '2026-10-06',
+    '1,800.00ドル',
+  ])
+})
+
+test('基準10（要件12）: 7203（100株・2,500円）と AAPL（10株・150.25ドル）を保有し、どちらも価格が保存済みのとき、合計評価額に「300,000円」と「1,800.00ドル」がこの順に表示され、「価格を取得できない銘柄を含みません」は表示されない', async ({ page }) => {
+  await insertHoldingsData({
+    stocks: [APPLE],
+    trades: [TOYOTA_100, APPLE_10],
+    prices: [TOYOTA_PRICE, APPLE_PRICE],
+  })
+
+  await page.goto(HOLDINGS_PATH)
+
+  // 先に合計評価額が出る（取得が終わった）のを待ってから、注記がないことを確かめる（プラン 4.5）。
+  await expect(totalRegion(page)).toContainText(amountPattern('300,000円'))
+  // 通貨ごとに1行ずつ、円、ドルの順（4.7: 合計の領域の <ul> の <li>）。
+  await expect(totalRows(page)).toHaveCount(2)
+  await expect(totalRows(page).nth(0)).toContainText(amountPattern('300,000円'))
+  await expect(totalRows(page).nth(1)).toContainText(amountPattern('1,800.00ドル'))
+  await expect(page.getByText(UNPRICED_NOTE)).toHaveCount(0)
+})
+
+test('基準11（要件12・要件13）: 7203（価格あり）と MSFT（価格なし）を保有しているとき、合計評価額は「300,000円」の行（注記なし）と、「0.00ドル」と「価格を取得できない銘柄を含みません」の行になる', async ({ page }) => {
+  // Given: 7203「買 2,500円 100株」（価格保存済み）と MSFT「買 400.00ドル 5株」（価格なし）。
+  await insertHoldingsData({
+    stocks: [MICROSOFT],
+    trades: [TOYOTA_100, MICROSOFT_5],
+    prices: [TOYOTA_PRICE],
+  })
+
+  await page.goto(HOLDINGS_PATH)
+
+  await expect(totalRows(page)).toHaveCount(2)
+  // 円の行: 300,000円。「価格を取得できない銘柄を含みません」はない。
+  await expect(totalRows(page).nth(0)).toContainText(amountPattern('300,000円'))
+  await expect(totalRows(page).nth(0)).not.toContainText(UNPRICED_NOTE)
+  // ドルの行: 0.00ドル と「価格を取得できない銘柄を含みません」（その通貨の行の中）。
+  await expect(totalRows(page).nth(1)).toContainText(amountPattern('0.00ドル'))
+  await expect(totalRows(page).nth(1)).toContainText(UNPRICED_NOTE)
+  // 注記は、価格のないドルの行の1か所だけ。
+  await expect(page.getByText(UNPRICED_NOTE)).toHaveCount(1)
+  // MSFT の行の価格の3列は「取得できません」で、ドルの取得価格は小数2桁で表示される。
+  await expect(dataCells(holdingRow(page, 'MSFT'))).toHaveText([
+    'MSFT',
+    'Microsoft',
+    '5株',
+    '400.00ドル',
+    UNAVAILABLE,
+    UNAVAILABLE,
+    UNAVAILABLE,
+  ])
+})
+
 test('基準7（要件10）: 7203 を買って売り切っただけのとき、「保有株式はありません」が表示され、合計評価額・「価格を今すぐ更新」・「⋯」は表示されない', async ({ page }) => {
   // Given: 利用者Aの売買履歴が 7203「買 2,000円 100株 2026-01-10」「売 2,500円 100株 2026-02-10」だけ（保有数量が0）。
   await insertHoldingsData({
@@ -325,19 +408,46 @@ test('AC-11: 9984 の価格が一度も保存されていないとき、9984 の
   await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
 })
 
-test('AC-18・補助 NFR-3（PR4_TC04）: 100銘柄（すべて価格が保存済み）を保有しているとき、/holdings を開いてから2秒以内に一覧が表示される（計測値を annotation に残す）', async ({ page, browser }) => {
-  // Given: 利用者Aが100銘柄を保有し、すべて価格が保存済み。
+test('基準31（非機能1。保有株式一覧の AC-18 を置き換える）: 100銘柄（円50・ドル50。すべて価格が保存済み）を売買履歴各20件で保有しているとき、/holdings を開いてから2秒以内に一覧が表示される（計測値を annotation と console.log に残す）', async ({ page, browser }) => {
+  // Given: 利用者Aが100銘柄（円50・ドル50）を売買履歴各20件（合計2,000件）で保有し、すべて価格が保存済み。
   // test.sql にない銘柄なので、銘柄マスタにも入れる（次のテストの beforeEach で消える）。
-  const codes = Array.from({ length: 100 }, (_, i) => String(1001 + i))
+  // 売買履歴は各銘柄、買い16件（各100株）と売り4件（各10株）。取引日はすべて今日（2026-11-16）より前で、取引日の昇順・同じ日は買いが先
+  // （途中で保有数量が負にならない）。保有数量は 1,560株。
+  const yenCodes = Array.from({ length: 50 }, (_, i) => String(1001 + i))
+  const usdCodes = Array.from({ length: 50 }, (_, i) => `US${String(i + 1).padStart(2, '0')}`)
+  const stocks: StockSeed[] = [
+    ...yenCodes.map((code) => ({ code, name: `E2E銘柄${code}`, currency: 'JPY' as const })),
+    ...usdCodes.map((code) => ({ code, name: `E2E銘柄${code}`, currency: 'USD' as const })),
+  ]
+  const allCodes = [...yenCodes, ...usdCodes]
+  const tradesOf = (code: string, currency: 'JPY' | 'USD'): TradeSeed[] =>
+    Array.from({ length: 20 }, (_, n) => {
+      const isSell = n >= 16
+      const day = String(n + 1).padStart(2, '0')
+      const price = currency === 'JPY' ? `${2400 + n}.0` : `${140 + n}.25`
+      return {
+        code,
+        side: isSell ? ('sell' as const) : ('buy' as const),
+        quantity: isSell ? 10 : 100,
+        price,
+        tradeDate: `2026-02-${day}`,
+      }
+    })
   await insertHoldingsData({
-    stocks: codes.map((code) => ({ code, name: `E2E銘柄${code}` })),
-    trades: codes.map((code) => ({ code, side: 'buy', quantity: 100, price: '2500.0', tradeDate: BUY_DATE })),
-    prices: codes.map((code) => ({ code, tradingDate: '2026-10-06', closePrice: '3000.0' })),
+    stocks,
+    trades: [
+      ...yenCodes.flatMap((code) => tradesOf(code, 'JPY')),
+      ...usdCodes.flatMap((code) => tradesOf(code, 'USD')),
+    ],
+    prices: [
+      ...yenCodes.map((code) => ({ code, tradingDate: '2026-10-06', closePrice: '3000.0' })),
+      ...usdCodes.map((code) => ({ code, tradingDate: '2026-10-06', closePrice: '180.00' })),
+    ],
   })
 
   // ウォームアップ: 一度 /holdings を開いて捨てる（dev サーバーの初回の変換などを計測に含めない。プラン 5.3）。
   await page.goto(HOLDINGS_PATH)
-  await expect(page.locator('tbody tr')).toHaveCount(codes.length)
+  await expect(page.locator('tbody tr')).toHaveCount(allCodes.length)
   await page.close()
 
   // 計測: 新しいブラウザコンテキストで開き直す（ウォームアップのページのキャッシュを使わない）。
@@ -348,21 +458,22 @@ test('AC-18・補助 NFR-3（PR4_TC04）: 100銘柄（すべて価格が保存�
     // 一覧の行が100行そろった時点の performance.now()（このページを開き始めてからの経過ミリ秒）を、描画のフレームごとに確かめる。
     const shownAt = await measuredPage.waitForFunction(
       (rowCount) => document.querySelectorAll('tbody tr').length >= rowCount && performance.now(),
-      codes.length,
+      allCodes.length,
       { polling: 'raf' },
     )
     const elapsedMs = await shownAt.jsonValue()
 
-    // 補助 NFR-3（PR④ の TC-04）: 計測値と 2000ms までの余裕が後から分かるよう、判定の前に annotation に残す（失敗したときも残る）。
+    // 計測値と 2000ms までの余裕が後から分かるよう、判定の前に annotation と標準出力に残す（失敗したときも残る）。
+    // 売買履歴 2,000件を行ごとに最新の終値を引く SQL（ListTradeRows）を変えるかを決めるための値（PR② のプラン 5.5）。
     const measuredMs = Number(elapsedMs)
-    test.info().annotations.push({
-      type: 'AC-18 計測値',
-      description: `${measuredMs.toFixed(1)}ms（上限 2000ms、余裕 ${(2000 - measuredMs).toFixed(1)}ms）`,
-    })
+    const summary = `${measuredMs.toFixed(1)}ms（上限 2000ms、余裕 ${(2000 - measuredMs).toFixed(1)}ms）`
+    test.info().annotations.push({ type: '基準31 計測値', description: summary })
+    console.log(`基準31 計測値: ${summary}`)
 
     expect(elapsedMs).toBeLessThanOrEqual(2000)
-    // 出ていたのは入れた100銘柄の一覧（行が余分に出ていない）。
-    await expect(measuredPage.locator('tbody tr')).toHaveCount(codes.length)
+    // 出ていたのは入れた100銘柄の一覧（行が余分に出ていない）。円とドルの合計が1行ずつ出ている。
+    await expect(measuredPage.locator('tbody tr')).toHaveCount(allCodes.length)
+    await expect(measuredPage.getByRole('region', { name: TOTAL_LABEL, exact: true }).getByRole('listitem')).toHaveCount(2)
   } finally {
     await context.close()
   }

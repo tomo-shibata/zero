@@ -14,8 +14,9 @@ import (
 // 5.1「補助のテスト（バックエンド）」の FR-8・FR-20・4.2（PR② の TC-04）の行。
 // holdings の NaN・Infinity のテスト（FR-19）は、売買履歴への作り変え（docs/plans/trade-history/plan.md 5.5）で消し、
 // trades の制約のテスト（trades_constraints_test.go）に置き換えた。
-//   - stocks: code と name は空文字不可（23514）、NULL 不可（23502）。
-//   - stock_prices: close_price > 0・close_price = round(close_price, 1)・close_price < 'Infinity'・isfinite(trading_date)（23514）、
+//   - stocks: code と name は空文字不可（23514）、NULL 不可（23502）。PR②（00006。売買履歴のプラン 4.2・5.3）で currency を足す:
+//     currency IN ('JPY', 'USD')（EUR・空・小文字は 23514）、NULL 不可（23502）。
+//   - stock_prices: close_price > 0・close_price = round(close_price, 2)（PR② の 00006 で小数第1位から第2位に替える）・close_price < 'Infinity'・isfinite(trading_date)（23514）、
 //     すべての列が NOT NULL（23502）、FK(stocks)（23503）。
 //
 // 形は trades の制約のテスト（trades_constraints_test.go）と同じ: 正しい行が保存できることを確かめてから、そこから1項目だけ変えた INSERT が
@@ -67,14 +68,15 @@ func assertSQLState(t *testing.T, err error, row any, wantCode string) {
 
 // stockValues は、stocks に入れる1行の値。nil の項目は NULL として入れる。
 type stockValues struct {
-	code any
-	name any
+	code     any
+	name     any
+	currency any
 }
 
-// validStock は、銘柄マスタの正しい行。seed（7203・6758・9984）と主キーが重ならない銘柄コードにする。
+// validStock は、銘柄マスタの正しい行（円）。seed（7203・6758・9984）と主キーが重ならない銘柄コードにする。
 // 130A は要件 FR-5 の例にある英字を含む銘柄コードで、銘柄名はテスト用の仮の名前。
 func validStock() stockValues {
-	return stockValues{code: "130A", name: "テスト銘柄130A"}
+	return stockValues{code: "130A", name: "テスト銘柄130A", currency: "JPY"}
 }
 
 func (v stockValues) with(change func(*stockValues)) stockValues {
@@ -85,17 +87,21 @@ func (v stockValues) with(change func(*stockValues)) stockValues {
 // tryInsertStock は、v を stocks に INSERT し（ロールバックするトランザクションの中で）、そのエラーを返す。
 func tryInsertStock(t *testing.T, pool *pgxpool.Pool, v stockValues) error {
 	t.Helper()
-	return insertInRolledBackTx(t, pool, "INSERT INTO stocks (code, name) VALUES ($1::text, $2::text)", v.code, v.name)
+	return insertInRolledBackTx(t, pool, "INSERT INTO stocks (code, name, currency) VALUES ($1::text, $2::text, $3::text)", v.code, v.name, v.currency)
 }
 
 // 補助 FR-20・4.2（PR② の TC-04）: 銘柄マスタの code・name が空文字なら 23514、NULL なら 23502 で保存できない。
-func TestFR20_PR2_TC04_銘柄マスタの銘柄コードと銘柄名は空文字やNULLでは保存できない(t *testing.T) {
+// 売買履歴のプラン 4.2・5.3（PR②）: currency は 'JPY'・'USD' だけ保存でき、'EUR'・空・小文字は 23514、NULL は 23502 で保存できない。
+func TestFR20_PR2_TC04_銘柄マスタの銘柄コードと銘柄名と通貨は空文字や許されない値やNULLでは保存できない(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
 
 	valid := validStock()
-	if err := tryInsertStock(t, pool, valid); err != nil {
-		t.Fatalf("正しい行 %+v を保存できない（以降の「保存できない」の確かめが意味をなさない）: %v", valid, err)
+	validUSD := valid.with(func(v *stockValues) { v.currency = "USD" })
+	for _, v := range []stockValues{valid, validUSD} {
+		if err := tryInsertStock(t, pool, v); err != nil {
+			t.Fatalf("正しい行 %+v を保存できない（以降の「保存できない」の確かめが意味をなさない）: %v", v, err)
+		}
 	}
 
 	cases := []struct {
@@ -107,6 +113,10 @@ func TestFR20_PR2_TC04_銘柄マスタの銘柄コードと銘柄名は空文字
 		{"nameが空文字", valid.with(func(v *stockValues) { v.name = "" }), sqlStateCheckViolation},
 		{"codeがNULL", valid.with(func(v *stockValues) { v.code = nil }), sqlStateNotNullViolation},
 		{"nameがNULL", valid.with(func(v *stockValues) { v.name = nil }), sqlStateNotNullViolation},
+		{"currencyがEUR", valid.with(func(v *stockValues) { v.currency = "EUR" }), sqlStateCheckViolation},
+		{"currencyが空文字", valid.with(func(v *stockValues) { v.currency = "" }), sqlStateCheckViolation},
+		{"currencyが小文字のjpy", valid.with(func(v *stockValues) { v.currency = "jpy" }), sqlStateCheckViolation},
+		{"currencyがNULL", valid.with(func(v *stockValues) { v.currency = nil }), sqlStateNotNullViolation},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,7 +138,7 @@ type stockPriceValues struct {
 	fetchedAt   any
 }
 
-// validStockPrice は、終値の正しい行（7203・2026-10-06・3,000.1円）。小数第1位までの単価は保存できる（4.2）。
+// validStockPrice は、終値の正しい行（7203・2026-10-06・3,000.1円）。小数第2位までの単価は保存できる（00006。売買履歴のプラン 4.2）。
 // fetched_at は、NULL にするケースのために列を明示して入れる（値は要件の取得時刻 18:00 の日本時間）。
 func validStockPrice() stockPriceValues {
 	return stockPriceValues{stockCode: "7203", tradingDate: "2026-10-06", closePrice: "3000.1", fetchedAt: "2026-10-06T18:00:00+09:00"}
@@ -148,16 +158,19 @@ func tryInsertStockPrice(t *testing.T, pool *pgxpool.Pool, v stockPriceValues) e
 	)
 }
 
-// 補助 FR-8・FR-19・FR-20・4.2（PR② の TC-04）: 終値の正しい行（3,000.1円と、下限の 0.1円）が保存できる。
-// そこから1項目だけ変えた行は保存できない。close_price が 0・3000.05・'NaN'・'Infinity' と、trading_date が 'infinity' は 23514。
+// 補助 FR-8・FR-19・FR-20・4.2（PR② の TC-04）: 終値の正しい行（3,000.1円と、下限の 0.01 と、小数第2位の 3000.25）が保存できる。
+// 00006 で、終値の精度を小数第1位から小数第2位にした（売買履歴のプラン 4.2・5.3。「0.01 は保存できる、0.001 は保存できない」）。
+// 円の「小数第1位まで」は DB では確かめない（取得の処理で確かめる。要件5）ので、3000.25 は保存できる。
+// そこから1項目だけ変えた行は保存できない。close_price が 0・0.001・3000.005・'NaN'・'Infinity' と、trading_date が 'infinity' は 23514。
 // 各列が NULL は 23502。銘柄が銘柄マスタにない 1301 は 23503。
 func TestFR8_FR19_FR20_PR2_TC04_終値は0や小数第2位やNaNや無限大や無限の取引日やNULLや銘柄マスタにない銘柄では保存できない(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
 
 	valid := validStockPrice()
-	validMin := valid.with(func(v *stockPriceValues) { v.closePrice = "0.1" })
-	for _, v := range []stockPriceValues{valid, validMin} {
+	validMin := valid.with(func(v *stockPriceValues) { v.closePrice = "0.01" })
+	validHundredths := valid.with(func(v *stockPriceValues) { v.closePrice = "3000.25" })
+	for _, v := range []stockPriceValues{valid, validMin, validHundredths} {
 		if err := tryInsertStockPrice(t, pool, v); err != nil {
 			t.Fatalf("正しい行 %+v を保存できない（以降の「保存できない」の確かめが意味をなさない）: %v", v, err)
 		}
@@ -169,7 +182,8 @@ func TestFR8_FR19_FR20_PR2_TC04_終値は0や小数第2位やNaNや無限大や�
 		wantCode string
 	}{
 		{"close_priceが0", valid.with(func(v *stockPriceValues) { v.closePrice = "0" }), sqlStateCheckViolation},
-		{"close_priceが小数第2位を含む_3000.05", valid.with(func(v *stockPriceValues) { v.closePrice = "3000.05" }), sqlStateCheckViolation},
+		{"close_priceが小数第3位を含む_0.001", valid.with(func(v *stockPriceValues) { v.closePrice = "0.001" }), sqlStateCheckViolation},
+		{"close_priceが小数第3位を含む_3000.005", valid.with(func(v *stockPriceValues) { v.closePrice = "3000.005" }), sqlStateCheckViolation},
 		{"close_priceがNaN", valid.with(func(v *stockPriceValues) { v.closePrice = "NaN" }), sqlStateCheckViolation},
 		{"close_priceがInfinity", valid.with(func(v *stockPriceValues) { v.closePrice = "Infinity" }), sqlStateCheckViolation},
 		{"trading_dateがinfinity", valid.with(func(v *stockPriceValues) { v.tradingDate = "infinity" }), sqlStateCheckViolation},

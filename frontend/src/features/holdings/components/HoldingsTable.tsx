@@ -1,5 +1,5 @@
 import type { Holding } from '../../../entities/holding/model'
-import { formatShares, formatUnitPrice, formatYen } from '../../../shared/lib/format'
+import { formatShares, formatUnitPrice, formatValuation } from '../../../shared/lib/format'
 import { MenuButton } from '../../../shared/ui/MenuButton'
 import './HoldingsTable.css'
 
@@ -93,7 +93,7 @@ function HoldingsTableRow({
       <td className={TEXT_CELL_CLASS}>{holding.code}</td>
       <td className={NAME_CELL_CLASS}>{holding.name}</td>
       <td className={NUMERIC_CELL_CLASS}>{formatShares(holding.quantity)}</td>
-      <td className={NUMERIC_CELL_CLASS}>{formatUnitPrice(holding.acquisitionPrice)}</td>
+      <td className={NUMERIC_CELL_CLASS}>{formatUnitPrice(holding.currency, holding.acquisitionPrice)}</td>
       {holding.currentPrice === null ? (
         <>
           <td className={UNAVAILABLE_CELL_CLASS}>{UNAVAILABLE}</td>
@@ -102,9 +102,9 @@ function HoldingsTableRow({
         </>
       ) : (
         <>
-          <td className={NUMERIC_CELL_CLASS}>{formatUnitPrice(holding.currentPrice)}</td>
+          <td className={NUMERIC_CELL_CLASS}>{formatUnitPrice(holding.currency, holding.currentPrice)}</td>
           <td className={NUMERIC_CELL_CLASS}>{holding.priceDate}</td>
-          <td className={NUMERIC_CELL_CLASS}>{formatYen(holding.valuation)}</td>
+          <td className={NUMERIC_CELL_CLASS}>{formatValuation(holding.currency, holding.valuation)}</td>
         </>
       )}
       <td className={ACTIONS_CELL_CLASS}>
