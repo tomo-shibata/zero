@@ -10,6 +10,7 @@ import (
 
 	"github.com/tomo-shibata/zero/backend/internal/application/command"
 	"github.com/tomo-shibata/zero/backend/internal/domain/model"
+	"github.com/tomo-shibata/zero/backend/internal/interface/csvinput"
 )
 
 // CSV の列の位置（見出しの順。要件23）。
@@ -38,7 +39,7 @@ var (
 // 列の数が7でなければ、列の数の誤りだけを返す。そうでなければ、すべての列を確かめ、誤りを列の順に（1つの列では最初に当たった1つだけ）返す。
 // 誤りがなければ、ImportRow（Line は rec.Line）を返す。誤りがあるときの ImportRow は使えない。
 // 3つ目の戻り値は、確かめを通ったのに ImportRow を組み立てられないという、起こらないはずの失敗。
-func parseRow(rec record, today string) (command.ImportRow, []Problem, error) {
+func parseRow(rec csvinput.Record, today string) (command.ImportRow, []Problem, error) {
 	if len(rec.Fields) != columnCount {
 		return command.ImportRow{}, []Problem{lineProblem(rec.Line, msgColumns)}, nil
 	}

@@ -23,7 +23,7 @@ const (
 type RunInput struct {
 	CSVPath  string // 空なら「CSV_FILE と USER_ID を指定してください」
 	UserID   string // 空なら同上。UUID として読めない値は「利用者 <ID> が見つかりません」
-	Today    string // "YYYY-MM-DD"（日本時間。TodayInJapan で作る）
+	Today    string // "YYYY-MM-DD"（日本時間。csvinput.TodayInJapan で作る）
 	Importer *command.ImportTrades
 }
 

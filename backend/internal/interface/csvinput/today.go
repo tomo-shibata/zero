@@ -1,4 +1,4 @@
-package tradecsv
+package csvinput
 
 import "time"
 
@@ -7,7 +7,7 @@ import "time"
 // 日本に夏時間はないので、固定の差で正しい。
 var japanTime = time.FixedZone("JST", 9*60*60)
 
-// TodayInJapan は、now の時点の日本時間の日付を "YYYY-MM-DD" で返す。cmd/import-trades の main が Run の Today に渡す。
+// TodayInJapan は、now の時点の日本時間の日付を "YYYY-MM-DD" で返す。cmd の main が Run の Today に渡す。
 func TodayInJapan(now time.Time) string {
 	return now.In(japanTime).Format(time.DateOnly)
 }
