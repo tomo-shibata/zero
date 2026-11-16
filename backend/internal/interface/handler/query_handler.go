@@ -39,5 +39,12 @@ func (h *QueryHandler) ListHoldings(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, response.CodeInternalError)
 		return
 	}
-	response.JSON(w, http.StatusOK, newHoldingsResponse(list))
+	body, err := newHoldingsResponse(list)
+	if err != nil {
+		// 円の単価が 0.1円で割り切れないなど、DB の値が決まりに合わないとき。黙って丸めず、誤った一覧を返さない。
+		log.Printf("api: GET /api/holdings: 保有株式一覧の応答を作れません: %v", err)
+		response.Error(w, http.StatusInternalServerError, response.CodeInternalError)
+		return
+	}
+	response.JSON(w, http.StatusOK, body)
 }

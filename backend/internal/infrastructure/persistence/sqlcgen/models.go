@@ -9,8 +9,9 @@ import (
 )
 
 type Stock struct {
-	Code string
-	Name string
+	Code     string
+	Name     string
+	Currency string
 }
 
 type StockPrice struct {

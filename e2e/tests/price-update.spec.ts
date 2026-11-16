@@ -4,6 +4,7 @@ import {
   resetHoldingsData,
   type TradeSeed,
   type StockPriceSeed,
+  type StockSeed,
 } from '../fixtures/db'
 
 // 仕様: 要件 docs/requirements/price-update.md（値段の更新）の E2E の基準と、補助のテスト。
@@ -14,7 +15,7 @@ import {
 //   （ConfirmDialog。role="alertdialog"、名前は文言そのもの、「キャンセル」「削除する」の順、失敗は role="alert" で「削除できませんでした」）、閉じた後のフォーカス。
 // 実行の前提: プラン 4.5 と前のプラン（docs/plans/stock-holdings/plan.md）4.5「E2E」の決まり
 //   （zero_e2e、API は利用者A で起動、beforeEach でデータを入れ替える、順に実行、America/Los_Angeles、「表示されない」の確かめ方）。
-//   今すぐ更新は、E2E 用の API のダミーの取得元をそのまま使う（7203 と 6758 は 2026-10-06 の終値、それ以外は取得できない）。
+//   今すぐ更新は、E2E 用の API のダミーの取得元をそのまま使う（7203・6758・AAPL は 2026-10-06 の終値、それ以外は取得できない。PR② で AAPL を足した）。
 // mock は境界の外側（ブラウザから見たネットワーク = page.route）にだけ使う。
 
 // 1件失敗しても後続を止めずに、順に実行する（同じ DB を使うため）。
@@ -83,6 +84,21 @@ const BIG_QUANTITY_CODE = '4063'
 const BIG_QUANTITY_NAME = '信越化学工業'
 /** 7203 の保存済みの終値（3,000円・2026-10-06）。 */
 const TOYOTA_PRICE: StockPriceSeed = { code: '7203', tradingDate: '2026-10-06', closePrice: '3000.0' }
+
+// ---- ドルの大きな値（判断39 の幅の確かめと、合計評価額の折り返しの確かめ。ステップ6 のデザインの指摘） ----
+/** ドルの銘柄 AAPL（銘柄マスタに足す。test.sql にない銘柄。次のテストの beforeEach で消える）。 */
+const APPLE: StockSeed = { code: 'AAPL', name: 'Apple', currency: 'USD' }
+/** ドルの価格のない銘柄 MSFT（銘柄マスタに足す）。合計評価額のドルの行に「価格を取得できない銘柄を含みません」を出すのに使う。 */
+const MICROSOFT: StockSeed = { code: 'MSFT', name: 'Microsoft', currency: 'USD' }
+/** AAPL を50株、取得価格 12,345.67ドル。 */
+const APPLE_50_BIG: TradeSeed = { code: 'AAPL', side: 'buy', quantity: 50, price: '12345.67', tradeDate: BUY_DATE }
+/** AAPL の保存済みの終値（24,691.35ドル・2026-10-06）。50株で評価額 1,234,567.50ドル。 */
+const APPLE_BIG_PRICE: StockPriceSeed = { code: 'AAPL', tradingDate: '2026-10-06', closePrice: '24691.35' }
+/** MSFT を5株、取得価格 400.00ドル（価格は入れない）。 */
+const MICROSOFT_5: TradeSeed = { code: 'MSFT', side: 'buy', quantity: 5, price: '400.00', tradeDate: BUY_DATE }
+/** 7203 を 3,607株、取得価格 30,000円。終値 34,227円で評価額 123,456,789円（円の合計が大きい例）。 */
+const TOYOTA_3607_BIG: TradeSeed = { code: '7203', side: 'buy', quantity: 3607, price: '30000.0', tradeDate: BUY_DATE }
+const TOYOTA_BIG_PRICE: StockPriceSeed = { code: '7203', tradingDate: '2026-10-06', closePrice: '34227.0' }
 
 // ---- 画面の要素 ----
 function holdingsHeading(page: Page): Locator {
@@ -866,7 +882,54 @@ test('補助 デザインの指摘1: 幅 375px で保有のある一覧を開い
   expect(widths.scrollWidth).toBeLessThanOrEqual(widths.clientWidth)
 })
 
-test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）で、画面のイメージのデータに長い銘柄名・小数つきの取得価格・大きな数量と価格の行を足して開くと、表の横スクロールの領域に横のスクロールが出ず、押す前から各行の「⋯」が領域の中にある', async ({ page }) => {
+test('補助 ステップ6 デザインの指摘1（ドルの合計）: 幅 375px で、円の合計が 123,456,789円・ドルの合計が 1,234,567.50ドル（価格のない銘柄を含むのでドルの行に注記が出る）のとき、ページ全体は横にスクロールせず、合計の金額は数字と「円」「ドル」が同じ行にあり切れていない', async ({ page }) => {
+  // Given: 7203（3,607株。終値 34,227円 → 123,456,789円）、AAPL（50株。終値 24,691.35ドル → 1,234,567.50ドル）、
+  //   MSFT（価格なし）を保有。合計評価額は、円の行（注記なし）とドルの行（MSFT を含まない注記つき）になる。
+  await insertHoldingsData({
+    stocks: [APPLE, MICROSOFT],
+    trades: [TOYOTA_3607_BIG, APPLE_50_BIG, MICROSOFT_5],
+    prices: [TOYOTA_BIG_PRICE, APPLE_BIG_PRICE],
+  })
+  await page.setViewportSize({ width: 375, height: 667 })
+
+  await page.goto(HOLDINGS_PATH)
+
+  // 合計の金額が期待どおりに出ている（幅を測る金額がこの値であることの確認）。
+  const rows = totalRegion(page).getByRole('listitem')
+  await expect(rows).toHaveCount(2)
+  const amounts = rows.locator('p:first-child')
+  await expect(amounts).toHaveText(['123,456,789円', '1,234,567.50ドル'])
+  await expect(rows.nth(1)).toContainText('価格を取得できない銘柄を含みません')
+
+  // ページ全体は横にスクロールしない（表の領域の中は横にスクロールしてよい）。
+  const widths = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(widths.scrollWidth, 'ページ全体の scrollWidth').toBeLessThanOrEqual(widths.clientWidth)
+
+  // 合計の金額の要素の中で、数字と「円」「ドル」が同じ行にある（「ドル」だけ次の行に分かれない）。
+  // 文字の箱（Range の getClientRects）の上端を丸めた値の種類が1つ = 1行。切れて（はみ出して）もいない。
+  const shapes = await amounts.evaluateAll((elements) =>
+    elements.map((element) => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      const lineTops = new Set(Array.from(range.getClientRects()).map((rect) => Math.round(rect.top)))
+      return {
+        text: element.textContent,
+        lines: lineTops.size,
+        clipped: element.scrollWidth > element.clientWidth,
+      }
+    }),
+  )
+  expect(shapes).toHaveLength(2)
+  shapes.forEach((shape) => {
+    expect(shape.lines, `「${String(shape.text)}」の行数`).toBe(1)
+    expect(shape.clipped, `「${String(shape.text)}」が切れている`).toBe(false)
+  })
+})
+
+test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）で、画面のイメージのデータに長い銘柄名・小数つきの取得価格・大きな数量と価格の行・ドルの大きな値の行を足して開くと、表の横スクロールの領域に横のスクロールが出ず、押す前から各行の「⋯」が領域の中にある', async ({ page }) => {
   // Given: 要件定義の「画面のイメージ」と同じ 7203 トヨタ自動車（400株・2,750円・価格あり）と、
   //   9984 ソフトバンクグループ（100株・4,500円・価格なしで価格の3列が「取得できません」）に、
   //   実際の銘柄名に多い長い名前の行を足す: 8306 三菱ＵＦＪフィナンシャル・グループ（16文字。100株・1,500円・価格なし）。
@@ -874,11 +937,14 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
   //   さらに、よくある大きめの値の行を足す（人間が決めた。それより大きい値は表の横スクロールで見る）:
   //   - 6758 ソニーグループを 100株・2,700円 と 200株・2,800円 で保有（まとめると 300株・取得価格の加重平均が小数つきの 2,766.7円。現在の価格 3,500円）
   //   - 4063 信越化学工業を 10,000株・12,000円 で保有（現在の価格 12,345.6円・評価額 123,456,000円）
+  //   - ドルの大きな値の行（ステップ6 のデザインの指摘2）: AAPL を 50株・12,345.67ドル で保有（現在の価格 24,691.35ドル・評価額 1,234,567.50ドル）。
+  //     ドルは小数2桁なので、円より桁が長く、列の幅を取る。
   await insertHoldingsData({
     stocks: [
-      { code: LONG_NAME_CODE, name: LONG_NAME },
-      { code: BIG_QUANTITY_CODE, name: BIG_QUANTITY_NAME },
-      { code: KATAKANA_NAME_CODE, name: KATAKANA_NAME },
+      APPLE,
+      { code: LONG_NAME_CODE, name: LONG_NAME, currency: 'JPY' },
+      { code: BIG_QUANTITY_CODE, name: BIG_QUANTITY_NAME, currency: 'JPY' },
+      { code: KATAKANA_NAME_CODE, name: KATAKANA_NAME, currency: 'JPY' },
     ],
     trades: [
       TOYOTA_FIRST,
@@ -889,11 +955,13 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
       { code: '6758', side: 'buy', quantity: 200, price: '2800.0', tradeDate: BUY_DATE },
       { code: BIG_QUANTITY_CODE, side: 'buy', quantity: 10000, price: '12000.0', tradeDate: BUY_DATE },
       { code: KATAKANA_NAME_CODE, side: 'buy', quantity: 100, price: '1000.0', tradeDate: BUY_DATE },
+      APPLE_50_BIG,
     ],
     prices: [
       TOYOTA_PRICE,
       SONY_PRICE,
       { code: BIG_QUANTITY_CODE, tradingDate: '2026-10-06', closePrice: '12345.6' },
+      APPLE_BIG_PRICE,
     ],
   })
   await page.setViewportSize({ width: 1280, height: 720 })
@@ -955,6 +1023,29 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
     UNAVAILABLE,
     UNAVAILABLE,
   ])
+  // ドルの大きな値の行（AAPL）: 取得価格 12,345.67ドル・現在の価格 24,691.35ドル・評価額 1,234,567.50ドル が表示され、
+  // どのセルも1行のまま（「ドル」だけ次の行に分かれない）で、切れていない。
+  await expect(dataCells(holdingRow(page, 'AAPL'))).toHaveText([
+    'AAPL',
+    'Apple',
+    '50株',
+    '12,345.67ドル',
+    '24,691.35ドル',
+    '2026-10-06',
+    '1,234,567.50ドル',
+  ])
+  const usdRowShapes = await dataCells(holdingRow(page, 'AAPL')).evaluateAll((cells) =>
+    cells.map((cell) => {
+      const range = document.createRange()
+      range.selectNodeContents(cell)
+      const lineTops = new Set(Array.from(range.getClientRects()).map((rect) => Math.round(rect.top)))
+      return { lines: lineTops.size, clipped: cell.scrollWidth > cell.clientWidth }
+    }),
+  )
+  usdRowShapes.forEach((shape, index) => {
+    expect(shape.lines, `AAPL の行の${index + 1}つ目のセルの行数`).toBe(1)
+    expect(shape.clipped, `AAPL の行の${index + 1}つ目のセルが切れている`).toBe(false)
+  })
   const katakanaNameCell = dataCells(holdingRow(page, KATAKANA_NAME_CODE)).nth(1)
   const katakanaNameShape = await katakanaNameCell.evaluate((cell) => ({ scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth }))
   expect(katakanaNameShape.scrollWidth, '長いカタカナの銘柄名のセルが切れている').toBeLessThanOrEqual(katakanaNameShape.clientWidth)
@@ -968,7 +1059,7 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
   const regionBox = await region.boundingBox()
   if (regionBox === null) throw new Error('表の横スクロールの領域の位置を取れない')
   // 押す前に、「⋯」のボタンの右端が領域の右端より内側にある（横にスクロールしないと見えない位置ではない）。
-  for (const name of ['トヨタ自動車', 'ソフトバンクグループ', LONG_NAME, 'ソニーグループ', BIG_QUANTITY_NAME, KATAKANA_NAME]) {
+  for (const name of ['トヨタ自動車', 'ソフトバンクグループ', LONG_NAME, 'ソニーグループ', BIG_QUANTITY_NAME, KATAKANA_NAME, 'Apple']) {
     const box = await operationButton(page, name).boundingBox()
     if (box === null) throw new Error(`${name}の「⋯」の位置を取れない`)
     expect(box.x + box.width, `${name}の「⋯」の右端`).toBeLessThanOrEqual(regionBox.x + regionBox.width)
@@ -1031,7 +1122,7 @@ test('補助 判断36・判断41（ステップ6 のテストの網羅の指摘4
   // Given: 12銘柄（1001〜1012）を保有。高さ 480px の画面で、ページの末尾の行が画面の下端に来るまでスクロールする。
   const codes = Array.from({ length: 12 }, (_, i) => String(1001 + i))
   await insertHoldingsData({
-    stocks: codes.map((code) => ({ code, name: `E2E銘柄${code}` })),
+    stocks: codes.map((code) => ({ code, name: `E2E銘柄${code}`, currency: 'JPY' as const })),
     trades: codes.map((code) => ({ code, side: 'buy', quantity: 100, price: '2500.0', tradeDate: BUY_DATE })),
   })
   await page.setViewportSize({ width: 1280, height: 480 })

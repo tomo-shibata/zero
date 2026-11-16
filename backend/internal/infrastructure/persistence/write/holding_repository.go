@@ -9,11 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tomo-shibata/zero/backend/internal/domain/model"
 	"github.com/tomo-shibata/zero/backend/internal/domain/repository"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/sqlcgen"
 )
 
-// HoldingRepository は、PostgreSQL の売買履歴から保有している銘柄を読む repository.HoldingRepository と repository.HeldStockRepository の実装。
+// HoldingRepository は、PostgreSQL の売買履歴から保有している銘柄を通貨と一緒に読む repository.HoldingRepository と repository.HeldStockRepository の実装。
 type HoldingRepository struct {
 	queries *sqlcgen.Queries
 }
@@ -29,26 +30,31 @@ func NewHoldingRepository(pool *pgxpool.Pool) *HoldingRepository {
 	return &HoldingRepository{queries: sqlcgen.New(pool)}
 }
 
-// ListHeldStockCodes は、誰かの保有数量が1以上の銘柄コードを、重複なし・昇順（Go の文字列比較と同じバイト順）で返す。
-// まとめと並べ替えは SQL（db/query/trades.sql の ListHeldStockCodes）で行う。
-func (r *HoldingRepository) ListHeldStockCodes(ctx context.Context) ([]string, error) {
-	codes, err := r.queries.ListHeldStockCodes(ctx)
+// ListHeldStocks は、誰かの保有数量が1以上の銘柄を、通貨と一緒に、重複なし・銘柄コードの昇順（Go の文字列比較と同じバイト順）で返す。
+// まとめと並べ替えは SQL（db/query/trades.sql の ListHeldStocks）で行う。
+func (r *HoldingRepository) ListHeldStocks(ctx context.Context) ([]repository.HeldStock, error) {
+	rows, err := r.queries.ListHeldStocks(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("保有されている銘柄コードの問い合わせに失敗しました: %w", err)
+		return nil, fmt.Errorf("保有されている銘柄の問い合わせに失敗しました: %w", err)
 	}
-	return codes, nil
+	stocks := make([]repository.HeldStock, 0, len(rows))
+	for _, row := range rows {
+		stocks = append(stocks, repository.HeldStock{Code: row.StockCode, Currency: model.Currency(row.Currency)})
+	}
+	return stocks, nil
 }
 
-// ListHeldStockCodesOf は、利用者 userID の保有数量が1以上の銘柄コードを、重複なし・昇順（COLLATE "C"）で返す。
-// まとめと並べ替えは SQL（db/query/trades.sql の ListHeldStockCodesOf）で行う。0件なら nil ではなく空のスライスを返す。
-func (r *HoldingRepository) ListHeldStockCodesOf(ctx context.Context, userID uuid.UUID) ([]string, error) {
-	codes, err := r.queries.ListHeldStockCodesOf(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+// ListHeldStocksOf は、利用者 userID の保有数量が1以上の銘柄を、通貨と一緒に、重複なし・銘柄コードの昇順（COLLATE "C"）で返す。
+// まとめと並べ替えは SQL（db/query/trades.sql の ListHeldStocksOf）で行う。0件なら nil ではなく空のスライスを返す。
+func (r *HoldingRepository) ListHeldStocksOf(ctx context.Context, userID uuid.UUID) ([]repository.HeldStock, error) {
+	rows, err := r.queries.ListHeldStocksOf(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return nil, fmt.Errorf("利用者の保有している銘柄コードの問い合わせに失敗しました: %w", err)
+		return nil, fmt.Errorf("利用者の保有している銘柄の問い合わせに失敗しました: %w", err)
 	}
-	if codes == nil {
-		// sqlc は0件のとき nil を返す。IF の約束（空のスライス）に合わせる。
-		codes = []string{}
+	// sqlc は0件のとき nil を返す。IF の約束（空のスライス）に合わせるため、長さ0のスライスから始める。
+	stocks := make([]repository.HeldStock, 0, len(rows))
+	for _, row := range rows {
+		stocks = append(stocks, repository.HeldStock{Code: row.StockCode, Currency: model.Currency(row.Currency)})
 	}
-	return codes, nil
+	return stocks, nil
 }

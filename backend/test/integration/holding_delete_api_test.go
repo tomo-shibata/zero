@@ -185,7 +185,7 @@ func Test基準20_Aが売買履歴のない銘柄の削除は404で何も消え�
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			pool := testdb.New(t)
-			insertStock(t, pool, "5000")
+			insertYenStock(t, pool, "5000")
 			insertDeleteGivenTrades(t, pool)
 			insertBuy(t, pool, seedUserB, "9984", 20, "4500")
 			h := newDeleteAPI(pool, seedUserA)
@@ -260,7 +260,7 @@ func Test補助_4_4_パスの銘柄コードは画面がencodeURIComponentで送
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			pool := testdb.New(t)
-			insertStock(t, pool, tc.stockCode)
+			insertYenStock(t, pool, tc.stockCode)
 			insertBuy(t, pool, seedUserA, "7203", 100, "2000")
 			insertBuy(t, pool, seedUserA, tc.stockCode, 30, "1500")
 			insertBuy(t, pool, seedUserB, tc.stockCode, 40, "1600")

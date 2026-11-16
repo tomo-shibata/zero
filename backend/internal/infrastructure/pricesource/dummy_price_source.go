@@ -16,8 +16,8 @@ const dummyTradingDate = "2026-10-06"
 // 本番の取得元が決まるまで使う。銘柄コードごとに決めた固定の終値と取引日を返し、決めていない銘柄は
 // command.ErrPriceUnavailable を返す。ダミーであることを名前で示す（NFR-2）。画面にはダミーであることを出さない。
 type DummyPriceSource struct {
-	// pricesTenths は、銘柄コードごとの固定の終値（0.1円単位）。取引日はどれも dummyTradingDate。
-	pricesTenths map[string]int64
+	// pricesHundredths は、銘柄コードごとの固定の終値（0.01 単位。円もドルも）。取引日はどれも dummyTradingDate。
+	pricesHundredths map[string]int64
 }
 
 // DummyPriceSource が command.PriceSource を満たすことを、コンパイル時に確かめる。
@@ -26,11 +26,13 @@ var _ command.PriceSource = (*DummyPriceSource)(nil)
 // NewDummyPriceSource は、要件「成功基準」のダミー価格の表のとおりの終値を返す DummyPriceSource を返す。
 //   - 7203（トヨタ自動車）: 3,000円・2026-10-06
 //   - 6758（ソニーグループ）: 3,500円・2026-10-06
-//   - それ以外（9984 など）: 取得できない（command.ErrPriceUnavailable）
+//   - AAPL（Apple）: 180.00ドル・2026-10-06
+//   - それ以外（9984・MSFT など）: 取得できない（command.ErrPriceUnavailable）
 func NewDummyPriceSource() *DummyPriceSource {
-	return &DummyPriceSource{pricesTenths: map[string]int64{
-		"7203": 30000,
-		"6758": 35000,
+	return &DummyPriceSource{pricesHundredths: map[string]int64{
+		"7203": 300000,
+		"6758": 350000,
+		"AAPL": 18000,
 	}}
 }
 
@@ -38,9 +40,9 @@ func NewDummyPriceSource() *DummyPriceSource {
 // 通信も待ちもしないので、ctx は見ない（取り消し済みの ctx でも、決めたとおりの値を返す。プラン 4.4）。
 // 読むだけなので、複数の goroutine から同時に呼んでもよい。
 func (s *DummyPriceSource) FetchClosingPrice(_ context.Context, stockCode string) (model.ClosingPrice, error) {
-	priceTenths, ok := s.pricesTenths[stockCode]
+	priceHundredths, ok := s.pricesHundredths[stockCode]
 	if !ok {
 		return model.ClosingPrice{}, command.ErrPriceUnavailable
 	}
-	return model.NewClosingPrice(stockCode, dummyTradingDate, priceTenths)
+	return model.NewClosingPrice(stockCode, dummyTradingDate, priceHundredths)
 }

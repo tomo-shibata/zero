@@ -22,7 +22,7 @@ import (
 // 組み立ては holdings_api_test.go と同じ 4.4 の境界（router.New(router.Deps{…})）。保有データは境界の外側の fake から渡す。
 
 // emptyListJSON は、保有データが0件のときの 200 の本文（4.4「API」）。
-const emptyListJSON = `{"holdings":[],"totalValuation":0,"totalExcludesUnpriced":false}`
+const emptyListJSON = `{"holdings":[],"totals":[]}`
 
 // forbiddenJSON は、Host が許可リストにないときの 403 の本文（4.4「API」、判断12）。
 const forbiddenJSON = `{"error":"forbidden"}`

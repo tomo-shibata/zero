@@ -14,9 +14,11 @@ import (
 // 銘柄コードごとに定義した固定の終値と取引日を返し、定義のない銘柄は『取得できない』を返す」）と、
 // プラン（docs/plans/stock-holdings/plan.md）5.1 の AC-17 の行
 // （http.DefaultTransport を「呼ばれたらテストを失敗させる」ものに差し替え、取り消し済みの context で 7203・9984 を要求する。
-// 7203 は 30000・2026-10-06、9984 は ErrPriceUnavailable。このテストは t.Parallel() にしない）。
-// 確かめる名前は 4.4 の pricesource.NewDummyPriceSource（7203=30000・6758=35000（Tenths、どちらも 2026-10-06）。
-// それ以外は ErrPriceUnavailable。通信しない。ctx の取り消しを見ない（取り消し済みでも定義どおりの値を返す））と、
+// 7203 は 3,000円・2026-10-06、9984 は ErrPriceUnavailable。このテストは t.Parallel() にしない）。
+// 売買履歴のプラン（docs/plans/trade-history/plan.md）4.6・5.3（PR②）で、値は 0.01 単位にし、AAPL を足す: 7203=300000・6758=350000・AAPL=18000
+// （どれも 2026-10-06）。MSFT・9984 は取得できない（ダミーの取得元の単体）。
+// 確かめる名前は 4.4 の pricesource.NewDummyPriceSource（上の値を返し、それ以外は ErrPriceUnavailable。
+// 通信しない。ctx の取り消しを見ない（取り消し済みでも定義どおりの値を返す））と、
 // command.PriceSource・ErrPriceUnavailable。
 //
 // 取り消し済みの context を渡すのは、ダミーが通信しようとしても（context を使う通信なら）すぐに失敗するようにして、
@@ -44,7 +46,8 @@ func replaceDefaultTransport(t *testing.T) {
 }
 
 // AC-17（NFR-2）: ダミーの取得元に 7203 と 9984 の価格を要求する
-// → 7203 は3,000円（0.1円単位で 30000）・2026-10-06 を返し、9984 は「取得できない」（command.ErrPriceUnavailable）を返す。
+// → 7203 は3,000円（0.01 単位で 300000）・2026-10-06 を返し、9984 は「取得できない」（command.ErrPriceUnavailable）を返す。
+// PR②（売買履歴のプラン 4.6・5.3）: AAPL は 180.00ドル（18000）・2026-10-06 を返し、MSFT は「取得できない」を返す。
 // 外部への通信は発生しない。
 //
 // t.Parallel() にしない（サブテストも）: http.DefaultTransport（パッケージの変数）を差し替えるため（プラン 5.1 の AC-17 の行）。
@@ -67,8 +70,35 @@ func TestAC17_ダミーの取得元は通信せずに7203は定義どおりの�
 		if got.TradingDate != "2026-10-06" {
 			t.Errorf("取引日: got %q, want %q", got.TradingDate, "2026-10-06")
 		}
-		if got.PriceTenths != 30000 {
-			t.Errorf("終値（0.1円単位）: got %d, want 30000（3,000円）", got.PriceTenths)
+		if got.PriceHundredths != 300000 {
+			t.Errorf("終値（0.01 単位）: got %d, want 300000（3,000円）", got.PriceHundredths)
+		}
+	})
+
+	t.Run("6758は3500円_2026-10-06を返す", func(t *testing.T) {
+		got, err := src.FetchClosingPrice(ctx, "6758")
+		if err != nil {
+			t.Fatalf("FetchClosingPrice(6758): got err %v, want nil", err)
+		}
+		if got.StockCode != "6758" || got.TradingDate != "2026-10-06" || got.PriceHundredths != 350000 {
+			t.Errorf("FetchClosingPrice(6758): got %+v, want 6758・2026-10-06・350000（3,500円）", got)
+		}
+	})
+
+	t.Run("AAPLは180ドル_2026-10-06を返す", func(t *testing.T) {
+		got, err := src.FetchClosingPrice(ctx, "AAPL")
+		if err != nil {
+			t.Fatalf("FetchClosingPrice(AAPL): got err %v, want nil（ダミーに定義のある銘柄）", err)
+		}
+		if got.StockCode != "AAPL" || got.TradingDate != "2026-10-06" || got.PriceHundredths != 18000 {
+			t.Errorf("FetchClosingPrice(AAPL): got %+v, want AAPL・2026-10-06・18000（180.00ドル）", got)
+		}
+	})
+
+	t.Run("MSFTは取得できないを返す", func(t *testing.T) {
+		got, err := src.FetchClosingPrice(ctx, "MSFT")
+		if !errors.Is(err, command.ErrPriceUnavailable) {
+			t.Errorf("FetchClosingPrice(MSFT): got (%+v, %v), want command.ErrPriceUnavailable（ダミーに定義のない銘柄）", got, err)
 		}
 	})
 

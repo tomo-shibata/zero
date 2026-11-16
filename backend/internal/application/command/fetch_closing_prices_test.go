@@ -8,24 +8,25 @@ import (
 
 	"github.com/tomo-shibata/zero/backend/internal/application/command"
 	"github.com/tomo-shibata/zero/backend/internal/domain/model"
+	"github.com/tomo-shibata/zero/backend/internal/domain/repository"
 )
 
 // 仕様: 要件（docs/requirements/stock-holdings.md）の AC-16（NFR-1「株価の取得元を差し替えられる。取得元ごとの実装は
 // 共通のインターフェースを実装し…価格の保存処理…は変更しない」）と、
 // プラン（docs/plans/stock-holdings/plan.md）5.1 の AC-16 の行
-// （テスト用の取得元（9984 → 12345・2026-10-07、ダミーにない値）とメモリ上のリポジトリを注入する。その値が保存される）。
+// （テスト用の取得元（9984 → 123450（0.01 単位。1,234.5円）・2026-10-07、ダミーにない値）とメモリ上のリポジトリを注入する。その値が保存される）。
 // 確かめる名前は 4.4 の command.PriceSource・ErrPriceUnavailable・NewFetchClosingPrices・Execute・FetchResult と、
 // domain の model.ClosingPrice・NewClosingPrice。取得処理の流れは 4.4「株価取得の決まり」。
 //
 // mock は境界の外側（取得元と、DB の代わりのメモリ上のリポジトリ）だけに使い、保存された値（結果）を確かめる。
-// 9984 の 12345（1,234.5円）・2026-10-07 は、ダミーの取得元（7203=30000・6758=35000、どちらも 2026-10-06。
+// 9984 の 123450（1,234.5円。0.01 単位）・2026-10-07 は、ダミーの取得元（7203=300000・6758=350000・AAPL=18000、どれも 2026-10-06。
 // 9984 は定義なし）が返さない値なので、保存された値はこのテスト用の取得元から来たものだと分かる。
 
-// fakeSourceCode・fakeTradingDate・fakePriceTenths は、プラン 5.1 の AC-16 の行のテスト用の取得元が返す値。
+// fakeSourceCode・fakeTradingDate・fakePriceHundredths は、プラン 5.1 の AC-16 の行のテスト用の取得元が返す値。
 const (
-	fakeSourceCode  = "9984"
-	fakeTradingDate = "2026-10-07"
-	fakePriceTenths = 12345 // 1,234.5円（0.1円単位。プラン 4.1）
+	fakeSourceCode      = "9984"
+	fakeTradingDate     = "2026-10-07"
+	fakePriceHundredths = 123450 // 1,234.5円（0.01 単位。プラン 4.3）
 )
 
 // testPriceSource は、command.PriceSource を実装したテスト用の取得元（境界の外側の fake）。
@@ -44,18 +45,27 @@ func (s testPriceSource) FetchClosingPrice(_ context.Context, stockCode string) 
 }
 
 // memoryHoldingRepository は、repository.HoldingRepository を実装したメモリ上のリポジトリ（DB の代わり）。
-// ListHeldStockCodes は、4.4 の決まり（誰かの保有数量が1以上の銘柄コード。重複なし・昇順）のとおりの codes を返す。
-// err が nil でなければ、codes と err を両方返す（一覧が読めないとき。fetch_closing_prices_failure_test.go が使う）。
+// ListHeldStocks は、4.6（PR②）の決まり（誰かの保有数量が1以上の銘柄を通貨と一緒に。重複なし・コードの昇順）のとおりの stocks を返す。
+// err が nil でなければ、stocks と err を両方返す（一覧が読めないとき。fetch_closing_prices_failure_test.go が使う）。
 // エラーと一緒に銘柄コードも返すのは、Execute がエラーのときに返った銘柄コードを使わないことを確かめるため
 // （エラーのときに nil を返すと、それを使って取得・保存へ進む実装でも何も保存されず、見分けられない。PR③ ステップ6 2ラウンド目の TC-04）。
-// err が nil のときは、codes と nil を返す（ほかのテストはこちら）。
+// err が nil のときは、stocks と nil を返す（ほかのテストはこちら）。
 type memoryHoldingRepository struct {
-	codes []string
-	err   error
+	stocks []repository.HeldStock
+	err    error
 }
 
-func (r memoryHoldingRepository) ListHeldStockCodes(context.Context) ([]string, error) {
-	return slices.Clone(r.codes), r.err
+func (r memoryHoldingRepository) ListHeldStocks(context.Context) ([]repository.HeldStock, error) {
+	return slices.Clone(r.stocks), r.err
+}
+
+// heldYen は、円の銘柄 codes を、保有している銘柄（通貨は JPY）にする。
+func heldYen(codes ...string) []repository.HeldStock {
+	stocks := make([]repository.HeldStock, 0, len(codes))
+	for _, code := range codes {
+		stocks = append(stocks, repository.HeldStock{Code: code, Currency: model.CurrencyJPY})
+	}
+	return stocks
 }
 
 // memoryClosingPriceRepository は、repository.ClosingPriceRepository を実装したメモリ上のリポジトリ（DB の代わり）。
@@ -92,25 +102,25 @@ func (r *memoryClosingPriceRepository) all() []model.ClosingPrice {
 }
 
 // AC-16（NFR-1）: 共通インターフェース（command.PriceSource）を実装したテスト用の取得元を注入して、価格の取得処理を実行する
-// → テスト用の取得元が返した価格（9984・2026-10-07・12345）が保存される。
+// → テスト用の取得元が返した価格（9984・2026-10-07・123450（0.01 単位。1,234.5円））が保存される。
 // 取得処理（command.FetchClosingPrices）のコードは変更せず、NewFetchClosingPrices に渡す取得元を変えるだけで
 // 取得元を差し替えられることを、このテストがダミー以外の取得元で動かすことで示す。
 func TestAC16_共通インターフェースを実装したテスト用の取得元を注入するとその取得元が返した価格が保存される(t *testing.T) {
 	t.Parallel()
 
-	want, err := model.NewClosingPrice(fakeSourceCode, fakeTradingDate, fakePriceTenths)
+	want, err := model.NewClosingPrice(fakeSourceCode, fakeTradingDate, fakePriceHundredths)
 	if err != nil {
 		t.Fatalf("model.NewClosingPrice(%q, %q, %d): %v（0より大きい終値はエラーにならない。4.4）",
-			fakeSourceCode, fakeTradingDate, fakePriceTenths, err)
+			fakeSourceCode, fakeTradingDate, fakePriceHundredths, err)
 	}
 	// 変数の型を command.PriceSource にして、テスト用の取得元が共通インターフェースを実装していることを型で確かめる。
 	var src command.PriceSource = testPriceSource{prices: map[string]model.ClosingPrice{fakeSourceCode: want}}
 	prices := &memoryClosingPriceRepository{}
-	fetch := command.NewFetchClosingPrices(src, memoryHoldingRepository{codes: []string{fakeSourceCode}}, prices)
+	fetch := command.NewFetchClosingPrices(src, memoryHoldingRepository{stocks: heldYen(fakeSourceCode)}, prices)
 
 	got, err := fetch.Execute(t.Context())
 
-	// 4.4「株価取得の決まり」3: Execute がエラーを返すのは ListHeldStockCodes が失敗したときだけ。
+	// 4.4「株価取得の決まり」3: Execute がエラーを返すのは ListHeldStocks が失敗したときだけ。
 	if err != nil {
 		t.Fatalf("Execute: got err %v, want nil", err)
 	}
@@ -123,7 +133,7 @@ func TestAC16_共通インターフェースを実装したテスト用の取得
 
 	saved := prices.all()
 	if len(saved) != 1 {
-		t.Fatalf("保存された終値: got %d件 %+v, want 1件（9984・2026-10-07・12345）", len(saved), saved)
+		t.Fatalf("保存された終値: got %d件 %+v, want 1件（9984・2026-10-07・123450）", len(saved), saved)
 	}
 	p := saved[0]
 	if p.StockCode != fakeSourceCode {
@@ -132,7 +142,7 @@ func TestAC16_共通インターフェースを実装したテスト用の取得
 	if p.TradingDate != fakeTradingDate {
 		t.Errorf("保存された終値の取引日: got %q, want %q（テスト用の取得元が返した取引日）", p.TradingDate, fakeTradingDate)
 	}
-	if p.PriceTenths != fakePriceTenths {
-		t.Errorf("保存された終値（0.1円単位）: got %d, want %d（テスト用の取得元が返した 1,234.5円）", p.PriceTenths, fakePriceTenths)
+	if p.PriceHundredths != fakePriceHundredths {
+		t.Errorf("保存された終値（0.01 単位）: got %d, want %d（テスト用の取得元が返した 1,234.5円）", p.PriceHundredths, fakePriceHundredths)
 	}
 }

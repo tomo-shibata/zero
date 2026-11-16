@@ -16,21 +16,21 @@ import { HoldingsPage } from '../../../src/features/holdings'
 // テスト計画: プラン 5.1 の基準29 の行「HoldingsPage を描画し、POST /api/price-refresh を終わらない fetch にする」。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使う。
 
-/** 一覧の API の応答（7203 の1行。保有が1件以上のときだけ、今すぐ更新のボタンが出る。要件1）。 */
+/** 一覧の API の応答（7203 の1行。保有が1件以上のときだけ、今すぐ更新のボタンが出る。要件1）。PR② で currency と totals の形にした（金額は文字列）。 */
 const HOLDINGS_BODY = {
   holdings: [
     {
       code: '7203',
       name: 'トヨタ自動車',
+      currency: 'JPY',
       quantity: 100,
       acquisitionPrice: '2500.0',
       currentPrice: '3000.0',
       priceDate: '2026-10-06',
-      valuation: 300000,
+      valuation: '300000',
     },
   ],
-  totalValuation: 300000,
-  totalExcludesUnpriced: false,
+  totals: [{ currency: 'JPY', valuation: '300000', excludesUnpriced: false }],
 }
 
 const REFRESH_BUTTON = '価格を今すぐ更新'

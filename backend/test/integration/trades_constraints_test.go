@@ -185,3 +185,29 @@ func Test補助_5_3_売買履歴の各列はNULLでは保存できない(t *test
 		})
 	}
 }
+
+// 5.5（PR②。00006 で trades.trade_date に CHECK (trade_date BETWEEN '0001-01-01' AND '9999-12-31') を足す）:
+// 取引日 0001-01-01 と 9999-12-31 は保存できる。10000-01-01（年が5桁）と紀元前の日付（0001-12-31 BC）は 23514（CHECK）で保存できない
+// （年が4桁でない日付は、文字列の比較で並び順を誤るため。PR① のステップ6 のエッジケースの指摘2-1）。
+func Test補助_5_5_売買履歴の取引日は0001_01_01から9999_12_31の範囲だけ保存できる(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	valid := validTrade()
+
+	requireTradeSaved(t, pool, valid.with(func(v *tradeValues) { v.tradeDate = "0001-01-01" }))
+	requireTradeSaved(t, pool, valid.with(func(v *tradeValues) { v.tradeDate = "9999-12-31" }))
+
+	cases := []struct {
+		name string
+		v    tradeValues
+	}{
+		{"取引日が10000-01-01（年が5桁）", valid.with(func(v *tradeValues) { v.tradeDate = "10000-01-01" })},
+		{"取引日が紀元前の0001-12-31_BC", valid.with(func(v *tradeValues) { v.tradeDate = "0001-12-31 BC" })},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assertTradeRejected(t, pool, tc.v, sqlStateCheckViolation)
+		})
+	}
+}

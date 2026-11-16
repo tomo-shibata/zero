@@ -58,7 +58,7 @@ func Test基準32_今すぐ更新は別のオリジンからの要求を拒否�
 
 		assertJSONResponse(t, rec, http.StatusOK, `{"saved":["7203"],"failed":[]}`)
 		assertStockPrices(t, pool, []storedClosePrice{
-			{stockCode: "7203", tradingDate: "2026-10-06", priceTenths: 30000},
+			{stockCode: "7203", tradingDate: "2026-10-06", priceHundredths: 300000},
 		})
 	})
 }
@@ -75,7 +75,7 @@ func Test補助_判断4_Sec_Fetch_SiteもOriginもない書き込みは通る(t 
 
 	assertJSONResponse(t, rec, http.StatusOK, `{"saved":["7203"],"failed":[]}`)
 	assertStockPrices(t, pool, []storedClosePrice{
-		{stockCode: "7203", tradingDate: "2026-10-06", priceTenths: 30000},
+		{stockCode: "7203", tradingDate: "2026-10-06", priceHundredths: 300000},
 	})
 }
 

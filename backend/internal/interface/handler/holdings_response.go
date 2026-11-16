@@ -1,68 +1,166 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
 )
 
-// holdingsResponse は、GET /api/holdings の本文（プラン 4.4「API」）。
+// 金額の整数（0.01 単位）を、通貨ごとの文字列にするときの単位と小数の桁数。
+const (
+	// yenUnitPriceStepHundredths は、円の単価の最小の単位 0.1円（0.01 単位で10）。円の単価はこの倍数でなければならない。
+	yenUnitPriceStepHundredths = 10
+	// yenValuationStepHundredths は、円の評価額の最小の単位 1円（0.01 単位で100）。円の評価額はこの倍数でなければならない。
+	yenValuationStepHundredths = 100
+	// yenUnitPriceDecimals・usdDecimals は、単価の文字列の小数の桁数（円は 0.1円まで、ドルは 0.01ドルまで）。
+	yenUnitPriceDecimals = 1
+	usdDecimals          = 2
+)
+
+// 値そのものは資産の額なので、エラー（ログに出る）には入れない。
+var (
+	errYenUnitPriceNotTenth = errors.New("円の単価が 0.1円で割り切れません")
+	errYenValuationNotWhole = errors.New("円の評価額が1円で割り切れません")
+)
+
+// holdingsResponse は、GET /api/holdings の本文（売買履歴のプラン 4.3「一覧の API の形」）。
 type holdingsResponse struct {
-	Holdings              []holdingResponse `json:"holdings"`
-	TotalValuation        int64             `json:"totalValuation"`
-	TotalExcludesUnpriced bool              `json:"totalExcludesUnpriced"`
+	Holdings []holdingResponse       `json:"holdings"`
+	Totals   []currencyTotalResponse `json:"totals"`
 }
 
 // holdingResponse は、一覧の1行。価格のない行は currentPrice・priceDate・valuation を null にする。
-// 単価は文字列にする。JSON の数にすると、受け取る側（JavaScript）が浮動小数点に変換して、誤差が入るおそれがあるため（判断1）。
+// 金額（単価・評価額）は文字列にする。JSON の数にすると、受け取る側（JavaScript）が浮動小数点に変換して、誤差が入るおそれがあるため
+// （売買履歴のプラン 6章の判断7）。単価は円が小数1桁（"2500.0"）・ドルが小数2桁（"150.25"）、
+// 評価額は円が整数（"450000"）・ドルが小数2桁（"1800.00"）。
 type holdingResponse struct {
 	Code             string  `json:"code"`
 	Name             string  `json:"name"`
+	Currency         string  `json:"currency"`
 	Quantity         int64   `json:"quantity"`
 	AcquisitionPrice string  `json:"acquisitionPrice"`
 	CurrentPrice     *string `json:"currentPrice"`
 	PriceDate        *string `json:"priceDate"`
-	Valuation        *int64  `json:"valuation"`
+	Valuation        *string `json:"valuation"`
+}
+
+// currencyTotalResponse は、1つの通貨の合計評価額。valuation の形は一覧の行の評価額と同じ。
+type currencyTotalResponse struct {
+	Currency         string `json:"currency"`
+	Valuation        string `json:"valuation"`
+	ExcludesUnpriced bool   `json:"excludesUnpriced"`
 }
 
 // newHoldingsResponse は、一覧の Read Model を API の本文の形にする。
-func newHoldingsResponse(list dto.HoldingsList) holdingsResponse {
-	// 0件でも holdings を null ではなく [] にするため、nil ではないスライスから始める。
+// 円の単価（取得価格・現在の価格）が 0.1円で割り切れない（0.01 単位で10の倍数でない）ときは、黙って切り捨てずにエラーにする
+// （SQL で円の終値 3000.25 を入れた、など。DB の CHECK は円の精度を確かめられない。売買履歴のプラン 4.7）。
+func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
+	// 0件でも holdings・totals を null ではなく [] にするため、nil ではないスライスから始める。
 	holdings := make([]holdingResponse, 0, len(list.Holdings))
 	for _, h := range list.Holdings {
-		row := holdingResponse{
-			Code:             h.Code,
-			Name:             h.Name,
-			Quantity:         h.Quantity,
-			AcquisitionPrice: formatTenths(h.AcquisitionPriceTenths),
-			PriceDate:        h.PriceDate,
-			Valuation:        h.Valuation,
-		}
-		if h.CurrentPriceTenths != nil {
-			row.CurrentPrice = new(formatTenths(*h.CurrentPriceTenths))
+		row, err := newHoldingResponse(h)
+		if err != nil {
+			return holdingsResponse{}, err
 		}
 		holdings = append(holdings, row)
 	}
-	return holdingsResponse{
-		Holdings:              holdings,
-		TotalValuation:        list.TotalValuation,
-		TotalExcludesUnpriced: list.TotalExcludesUnpriced,
+
+	totals := make([]currencyTotalResponse, 0, len(list.Totals))
+	for _, t := range list.Totals {
+		valuation, err := formatValuation(t.Currency, t.ValuationHundredths)
+		if err != nil {
+			return holdingsResponse{}, fmt.Errorf("%s の合計評価額: %w", t.Currency, err)
+		}
+		totals = append(totals, currencyTotalResponse{
+			Currency:         string(t.Currency),
+			Valuation:        valuation,
+			ExcludesUnpriced: t.ExcludesUnpriced,
+		})
+	}
+	return holdingsResponse{Holdings: holdings, Totals: totals}, nil
+}
+
+// newHoldingResponse は、一覧の1行 h を API の本文の形にする。取得価格、現在の価格、評価額の順に変換し、最初のエラーを返す。
+func newHoldingResponse(h dto.Holding) (holdingResponse, error) {
+	acquisition, err := formatUnitPrice(h.Currency, h.AcquisitionPriceHundredths)
+	if err != nil {
+		return holdingResponse{}, fmt.Errorf("銘柄 %q の取得価格: %w", h.Code, err)
+	}
+	row := holdingResponse{
+		Code:             h.Code,
+		Name:             h.Name,
+		Currency:         string(h.Currency),
+		Quantity:         h.Quantity,
+		AcquisitionPrice: acquisition,
+		PriceDate:        h.PriceDate,
+	}
+	if h.CurrentPriceHundredths != nil {
+		current, err := formatUnitPrice(h.Currency, *h.CurrentPriceHundredths)
+		if err != nil {
+			return holdingResponse{}, fmt.Errorf("銘柄 %q の現在の価格: %w", h.Code, err)
+		}
+		row.CurrentPrice = &current
+	}
+	if h.ValuationHundredths != nil {
+		valuation, err := formatValuation(h.Currency, *h.ValuationHundredths)
+		if err != nil {
+			return holdingResponse{}, fmt.Errorf("銘柄 %q の評価額: %w", h.Code, err)
+		}
+		row.Valuation = &valuation
+	}
+	return row, nil
+}
+
+// formatUnitPrice は、0.01 単位の単価を、通貨の単価の形の文字列にする。
+// 円は小数第1位を必ず1桁付ける（例: 250000 → "2500.0"、5 は 0.05円なのでエラー）。ドルは小数第2位を必ず2桁付ける（例: 15025 → "150.25"）。
+// 小数の末尾が0でも省かないのは、API の単価の形を通貨ごとに1つ（円 ^[0-9]+\.[0-9]$・ドル ^[0-9]+\.[0-9]{2}$）にして、
+// 表示の整え方は画面に任せるため。
+func formatUnitPrice(currency dto.Currency, hundredths int64) (string, error) {
+	switch currency {
+	case dto.CurrencyJPY:
+		if hundredths%yenUnitPriceStepHundredths != 0 {
+			return "", errYenUnitPriceNotTenth
+		}
+		return formatDecimal(hundredths/yenUnitPriceStepHundredths, yenUnitPriceDecimals), nil
+	case dto.CurrencyUSD:
+		return formatDecimal(hundredths, usdDecimals), nil
+	default:
+		return "", fmt.Errorf("知らない通貨 %q です", currency)
 	}
 }
 
-// formatTenths は、0.1円単位の整数を、小数第1位を必ず1桁付けた円の文字列にする（例: 25000 → "2500.0"、5 → "0.5"）。
-// 小数第1位が0でも省かないのは、API の単価の形を1つ（^[0-9]+\.[0-9]$）にして、表示の整え方は画面に任せるため（プラン 4.4）。
-// 浮動小数点を通さずに、整数の10進の文字列の最後の桁の前に小数点を入れて作る。
-func formatTenths(tenths int64) string {
-	digits := strconv.FormatInt(tenths, 10)
+// formatValuation は、0.01 単位の評価額を、通貨の評価額の形の文字列にする。
+// 円は整数（例: 45000000 → "450000"。評価額は1円未満を切り捨てた値なので100の倍数。そうでなければエラー）、
+// ドルは小数第2位を必ず2桁付ける（例: 180000 → "1800.00"）。
+func formatValuation(currency dto.Currency, hundredths int64) (string, error) {
+	switch currency {
+	case dto.CurrencyJPY:
+		if hundredths%yenValuationStepHundredths != 0 {
+			return "", errYenValuationNotWhole
+		}
+		return strconv.FormatInt(hundredths/yenValuationStepHundredths, 10), nil
+	case dto.CurrencyUSD:
+		return formatDecimal(hundredths, usdDecimals), nil
+	default:
+		return "", fmt.Errorf("知らない通貨 %q です", currency)
+	}
+}
+
+// formatDecimal は、整数 units を、末尾から decimals 桁を小数部にした文字列にする（例: units 25000・decimals 1 → "2500.0"、5・1 → "0.5"、5・2 → "0.05"）。
+// 浮動小数点を通さずに、整数の10進の文字列の途中に小数点を入れて作る。
+func formatDecimal(units int64, decimals int) string {
+	digits := strconv.FormatInt(units, 10)
 	sign := ""
 	if rest, ok := strings.CutPrefix(digits, "-"); ok {
 		sign, digits = "-", rest
 	}
-	if len(digits) == 1 {
-		digits = "0" + digits
+	// 整数部が少なくとも1桁（0）になるまで、先頭に0を足す。
+	if len(digits) <= decimals {
+		digits = strings.Repeat("0", decimals+1-len(digits)) + digits
 	}
-	last := len(digits) - 1
-	return sign + digits[:last] + "." + digits[last:]
+	point := len(digits) - decimals
+	return sign + digits[:point] + "." + digits[point:]
 }

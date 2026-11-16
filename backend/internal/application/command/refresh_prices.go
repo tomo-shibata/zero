@@ -23,11 +23,11 @@ func NewRefreshPrices(fetch *FetchClosingPrices, held repository.HeldStockReposi
 
 // Execute は、利用者 userID の保有銘柄の終値を取得して保存する。他の利用者だけが保有する銘柄は取得しない（要件16）。
 // エラーを返すのは、保有銘柄を読めなかったときだけで、そのときは取得元を呼ばない（どの銘柄を取得すればよいか分からないため）。
-// 1銘柄の失敗や ctx の取り消しは、エラーにせず FetchResult の Failed に入る（ExecuteCodes の決まり）。
+// 1銘柄の失敗や ctx の取り消しは、エラーにせず FetchResult の Failed に入る（ExecuteStocks の決まり）。
 func (c *RefreshPrices) Execute(ctx context.Context, userID uuid.UUID) (FetchResult, error) {
-	codes, err := c.held.ListHeldStockCodesOf(ctx, userID)
+	stocks, err := c.held.ListHeldStocksOf(ctx, userID)
 	if err != nil {
 		return FetchResult{}, fmt.Errorf("利用者の保有している銘柄を読めません: %w", err)
 	}
-	return c.fetch.ExecuteCodes(ctx, codes), nil
+	return c.fetch.ExecuteStocks(ctx, stocks), nil
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // 仕様: プラン（docs/plans/trade-history/plan.md）4.3 の「保有の計算」の 3・6（保有数量が途中で負になる売買履歴と、
-// 最後の値が int64 に収まらない売買履歴は、誤った一覧を返さずにエラーにする）、4.6（PR①）の
+// 最後の値が int64 に収まらない売買履歴は、誤った一覧を返さずにエラーにする）、4.6（PR①。PR② で金額は 0.01 単位・合計は通貨ごと）の
 // 「HoldingsReader.ListTradeRows」と「ListHoldings.Execute は中で CalculateHoldings を使う」、5.2・5.3。
 // 確かめるのは NewListHoldings・Execute。売買履歴は、境界の外側の HoldingsReader の fake から渡す。
 // 計算そのものの値（基準1〜5 など）は calculate_holdings_test.go。ここは、Execute が読み取りの結果を計算に渡し、
@@ -35,14 +35,14 @@ func (r *fixedRowsReader) ListTradeRows(_ context.Context, userID uuid.UUID) ([]
 var userA = uuid.MustParse("00000000-0000-0000-0000-00000000000a")
 
 // Execute は、読み取りが返した売買履歴から一覧を作って返す。呼ぶ利用者 ID をそのまま読み取りに渡す。
-// 値は要件の基準1 の前半（150株・2,500円）と、7203 の終値 3,000円（評価額 450,000円）。
+// 値は要件の基準1 の前半（150株・2,500円 = 250000）と、7203 の終値 3,000円（評価額 450,000円 = 45000000。どちらも 0.01 単位）。
 func Test補助_Executeは読み取りの売買履歴から一覧を作り利用者のIDをそのまま渡す(t *testing.T) {
 	t.Parallel()
 	s := toyota()
 	reader := &fixedRowsReader{rows: []dto.TradeRow{
-		s.buy(1, 100, 20000, "2026-01-10"),
-		s.buy(2, 100, 30000, "2026-06-01"),
-		s.sell(3, 50, 35000, "2026-07-01"),
+		s.buy(1, 100, 200000, "2026-01-10"),
+		s.buy(2, 100, 300000, "2026-06-01"),
+		s.sell(3, 50, 350000, "2026-07-01"),
 	}}
 	q := query.NewListHoldings(reader)
 
@@ -52,19 +52,19 @@ func Test補助_Executeは読み取りの売買履歴から一覧を作り利用
 		t.Fatalf("Execute: got err %v, want nil", err)
 	}
 	h := onlyHolding(t, got, toyotaCode)
-	assertQuantityAndAcquisition(t, h, 150, 25000)
-	if h.Valuation == nil || *h.Valuation != 450000 {
-		t.Errorf("評価額: got %v, want 450000（150株 × 3,000円）", h.Valuation)
+	assertQuantityAndAcquisition(t, h, 150, 250000)
+	if h.ValuationHundredths == nil || *h.ValuationHundredths != 45000000 {
+		t.Errorf("評価額（0.01 単位）: got %v, want 45000000（150株 × 3,000円 = 450,000円）", h.ValuationHundredths)
 	}
-	if got.TotalValuation != 450000 {
-		t.Errorf("合計評価額: got %d, want 450000", got.TotalValuation)
-	}
+	assertTotals(t, got, []dto.CurrencyTotal{
+		{Currency: dto.CurrencyJPY, ValuationHundredths: 45000000, ExcludesUnpriced: false},
+	})
 	if len(reader.gotUsers) != 1 || reader.gotUsers[0] != userA {
 		t.Errorf("読み取りに渡された利用者 ID: got %v, want [%s]", reader.gotUsers, userA)
 	}
 }
 
-// 売買履歴が0件でも、エラーにならず、Holdings は空のスライス（nil ではない。API で null にしないため）。
+// 売買履歴が0件でも、エラーにならず、Holdings・Totals は空のスライス（nil ではない。API で null にしないため）。
 func Test補助_Executeは売買履歴が0件なら空のスライスを返す(t *testing.T) {
 	t.Parallel()
 	q := query.NewListHoldings(&fixedRowsReader{rows: []dto.TradeRow{}})
@@ -76,6 +76,9 @@ func Test補助_Executeは売買履歴が0件なら空のスライスを返す(t
 	}
 	if got.Holdings == nil || len(got.Holdings) != 0 {
 		t.Errorf("Holdings: got %v, want 空のスライス（nil ではない）", got.Holdings)
+	}
+	if got.Totals == nil || len(got.Totals) != 0 {
+		t.Errorf("Totals: got %v, want 空のスライス（nil ではない）", got.Totals)
 	}
 }
 

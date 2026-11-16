@@ -32,8 +32,8 @@ func listHoldingsOf(t *testing.T, pool *pgxpool.Pool, userID string) dto.Holding
 // 基準6（要件10・要件12）: Aの売買履歴が、7203「買 2,000円 100株 2026-01-10」「売 2,500円 100株 2026-02-10」と、
 // 6758「買 3,200円 10株 2026-01-10」→ Aの一覧は 6758 の1行だけで、合計評価額は 35,000円（売り切った 7203 は一覧にも合計にも入らない）。
 // 6758 の価格（3,500円・2026-10-06）は保存済み。売り切った 7203 の価格は入れない（5.5: 価格のない売り切りの銘柄が
-// 「価格を取得できない銘柄を含みません」を出さないことも確かめる。TotalExcludesUnpriced が false）。
-// 円の行だけの合計は、PR② で `totals` に直す（PR① では TotalValuation）。
+// 「価格を取得できない銘柄を含みません」を出さないことも確かめる。Totals の円の行の ExcludesUnpriced が false）。
+// PR②（5.1）で、合計は通貨ごとの Totals にする（円の1件だけ。35,000円 = 3500000（0.01 単位））。金額は 0.01 単位（Hundredths）。
 func Test基準6_売り切った銘柄は一覧に出さず合計評価額に含めない(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
@@ -51,14 +51,13 @@ func Test基準6_売り切った銘柄は一覧に出さず合計評価額に含
 	if h.Quantity != 10 {
 		t.Errorf("6758 の保有数量: got %d, want 10", h.Quantity)
 	}
-	if h.Valuation == nil || *h.Valuation != 35000 {
-		t.Errorf("6758 の評価額: got %v, want 35000", h.Valuation)
+	if h.ValuationHundredths == nil || *h.ValuationHundredths != 3500000 {
+		t.Errorf("6758 の評価額（0.01 単位）: got %v, want 3500000（35,000円）", h.ValuationHundredths)
 	}
-	if got.TotalValuation != 35000 {
-		t.Errorf("合計評価額: got %d, want 35000", got.TotalValuation)
-	}
-	if got.TotalExcludesUnpriced {
-		t.Error("TotalExcludesUnpriced: got true, want false（価格のない 7203 は売り切っていて、注記の対象にならない）")
+	// 合計は円の1件だけ（ドルの行はない）。価格のない 7203 は売り切っていて、注記（ExcludesUnpriced）の対象にならない。
+	wantTotals := []dto.CurrencyTotal{{Currency: dto.CurrencyJPY, ValuationHundredths: 3500000, ExcludesUnpriced: false}}
+	if !slices.Equal(got.Totals, wantTotals) {
+		t.Errorf("Totals: got %+v, want %+v", got.Totals, wantTotals)
 	}
 }
 
@@ -84,7 +83,7 @@ func Test基準8_AC2_利用者Aの一覧に利用者Bの売買履歴は含まれ
 
 // 基準8 の補助（5.5）: AとBが同じ 7203 を持つとき、Aの保有数量・取得価格はAの売買履歴の分だけ
 // （Aが 100株・2,500円、Bが 30株・3,000円 → Aは 100株・2,500円。Bの分を足すと 130株・2,615.4円 になって誤り）。
-// Bの一覧は 30株・3,000円。
+// Bの一覧は 30株・3,000円。取得価格は 0.01 単位（250000・300000）。
 func Test基準8補助_同じ銘柄を持つ利用者の保有数量と取得価格は自分の売買履歴の分だけになる(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
@@ -93,14 +92,14 @@ func Test基準8補助_同じ銘柄を持つ利用者の保有数量と取得価
 
 	gotA := listHoldingsOf(t, pool, seedUserA)
 	hA := onlyHoldingOf(t, gotA.Holdings, "7203")
-	if hA.Quantity != 100 || hA.AcquisitionPriceTenths != 25000 {
-		t.Errorf("Aの 7203: got %d株・%d（0.1円単位）, want 100株・25000（2,500円）", hA.Quantity, hA.AcquisitionPriceTenths)
+	if hA.Quantity != 100 || hA.AcquisitionPriceHundredths != 250000 {
+		t.Errorf("Aの 7203: got %d株・%d（0.01 単位）, want 100株・250000（2,500円）", hA.Quantity, hA.AcquisitionPriceHundredths)
 	}
 
 	gotB := listHoldingsOf(t, pool, seedUserB)
 	hB := onlyHoldingOf(t, gotB.Holdings, "7203")
-	if hB.Quantity != 30 || hB.AcquisitionPriceTenths != 30000 {
-		t.Errorf("Bの 7203: got %d株・%d（0.1円単位）, want 30株・30000（3,000円）", hB.Quantity, hB.AcquisitionPriceTenths)
+	if hB.Quantity != 30 || hB.AcquisitionPriceHundredths != 300000 {
+		t.Errorf("Bの 7203: got %d株・%d（0.01 単位）, want 30株・300000（3,000円）", hB.Quantity, hB.AcquisitionPriceHundredths)
 	}
 }
 
@@ -118,7 +117,7 @@ func insertTradeWithID(t *testing.T, pool *pgxpool.Pool, id int64, userID, stock
 
 // 基準4（要件8）の統合: 単体（calculate_holdings_test.go の基準4）と同じ4件の売買履歴を、id を指定して id が 3 → 2 → 1 → 4 の順に入れる
 // （id 1「買 2,000円 100株 2026-03-02」、id 2「売 2,000円 100株 2026-03-02」、id 3「買 3,000円 100株 2026-03-02」、id 4「買 1,000円 10株 2026-03-01」）
-// → Aの一覧の 7203 は 110株・2,900.8円（Tenths で 29008）。
+// → Aの一覧の 7203 は 110株・2,900.8円（Hundredths で 290080）。
 // 同じ取引日の順は DB に入れた順ではなく id の順（登録した順）で決まる。読み取りが id を渡し忘れると、入れた順（3 → 2 → 1）にたどって別の値になる。
 func Test基準4_同じ取引日の売買履歴はDBに入れた順ではなくidの順にたどる(t *testing.T) {
 	t.Parallel()
@@ -131,8 +130,8 @@ func Test基準4_同じ取引日の売買履歴はDBに入れた順ではなくi
 	got := listHoldingsOf(t, pool, seedUserA)
 
 	h := onlyHoldingOf(t, got.Holdings, "7203")
-	if h.Quantity != 110 || h.AcquisitionPriceTenths != 29008 {
-		t.Errorf("Aの 7203: got %d株・%d（0.1円単位）, want 110株・29008（2,900.8円）", h.Quantity, h.AcquisitionPriceTenths)
+	if h.Quantity != 110 || h.AcquisitionPriceHundredths != 290080 {
+		t.Errorf("Aの 7203: got %d株・%d（0.01 単位）, want 110株・290080（2,900.8円）", h.Quantity, h.AcquisitionPriceHundredths)
 	}
 }
 

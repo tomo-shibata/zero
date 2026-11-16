@@ -15,7 +15,7 @@ import (
 // 仕様: 要件（docs/requirements/stock-holdings.md）の AC-14b（FR-15a「開発・テスト用に、FR-15 と同じ取得処理を
 // 手動で実行する task コマンドを用意する」）と、プラン（docs/plans/stock-holdings/plan.md）5.1 の AC-14b の行
 // （AC-13 と同じデータで、task prices:fetch を別プロセスで実行する（DATABASE_URL に testdb の接続文字列を渡す）。
-// 終了コードが 0、stock_prices が 7203（30000・2026-10-06）と 6758（35000・2026-10-06）の各1行）。
+// 終了コードが 0、stock_prices が 7203（300000・2026-10-06）と 6758（350000・2026-10-06）の各1行（価格は 0.01 単位の整数。3,000円・3,500円））。
 // あわせて 4.5「task prices:fetch は、呼び出し側の DATABASE_URL を上書きしない（AC-14b でテスト用 DB を渡すため）」、
 // 4.3 の cmd/fetch-prices の環境変数（必須は DATABASE_URL）、4.4「株価取得の決まり」4（終了コード）、
 // 4.4 の testdb（接続文字列は pool.Config().ConnString() で得て、別プロセスに渡す）。

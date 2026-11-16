@@ -17,11 +17,11 @@ import (
 // 仕様: 要件（docs/requirements/stock-holdings.md）の AC-13・AC-13a（FR-15）、AC-14（FR-16）と、売買履歴の要件定義（docs/requirements/trade-history.md）の基準16（要件16）と、
 // プラン（docs/plans/stock-holdings/plan.md）5.1 の AC-13・AC-13a・AC-14 の行（PR③）。
 // 組み立ては 4.4 の境界のとおり: command.NewFetchClosingPrices(取得元, write.NewHoldingRepository(pool),
-// write.NewClosingPriceRepository(pool)) → Execute。取得元は AC-13・AC-13a がダミー（pricesource.NewDummyPriceSource）、
-// AC-14 がテスト用の取得元（境界の外側の fake）。取得処理の流れは 4.4「株価取得の決まり」。
+// write.NewClosingPriceRepository(pool)) → Execute。取得元は AC-13・AC-13a・基準16 がダミー（pricesource.NewDummyPriceSource。
+// PR② で 0.01 単位にし、AAPL=18000 を足す。売買履歴のプラン 5.1・5.5）、AC-14・基準15 がテスト用の取得元（境界の外側の fake）。取得処理の流れは 4.4「株価取得の決まり」。
 //
 // 売買履歴（買い）と保存済みの価格は SQL の INSERT で入れ（holdings_fixtures_test.go）、結果は stock_prices を SQL で読んで確かめる
-// （stock_prices_fixtures_test.go。終値は 0.1円単位の整数で比べる）。
+// （stock_prices_fixtures_test.go。終値は 0.01 単位の整数で比べる）。
 // 期待値は要件の AC とプランの値をそのまま使い、テストの中で計算しない。
 
 // newFetchClosingPrices は、取得元 src と pool の DB を使う価格の取得処理を、4.4 の境界のとおりに組み立てる。
@@ -32,7 +32,7 @@ func newFetchClosingPrices(src command.PriceSource, pool *pgxpool.Pool) *command
 // AC-13（FR-15）: 7203 と 6758 が保有されていて、価格は未保存 → ダミーの取得元で価格の取得処理を実行する
 // → 7203 は3,000円・2026-10-06、6758 は3,500円・2026-10-06 で保存される。
 // プラン 5.1: A が 7203 を2件（数量違い）、B が 6758 を保有。err が nil・len(Failed) == 0・Saved が ["6758","7203"]。
-// stock_prices が 7203（30000・2026-10-06）と 6758（35000・2026-10-06）の各1行
+// stock_prices が 7203（300000・2026-10-06）と 6758（350000・2026-10-06）の各1行（0.01 単位）
 // （同じ銘柄を2件保有していても1行。他の利用者（B）の保有銘柄も取得する。FR-15「保有されている全銘柄」）。
 func TestAC13_保有されている全銘柄の終値をダミーの取得元から取得して取引日とともに保存する(t *testing.T) {
 	t.Parallel()
@@ -55,7 +55,7 @@ func TestAC13_保有されている全銘柄の終値をダミーの取得元か
 
 // AC-13a（FR-15）: 7203 が保有されていて、7203 の価格が2,900円・2026-10-06 で保存済み → ダミーの取得元で価格の取得処理を実行する
 // → エラーにならず、7203 の 2026-10-06 の価格は1件のまま3,000円になる（同じ銘柄・同じ取引日は上書きし、成功として扱う）。
-// プラン 5.1: A が 7203 を保有。err が nil・len(Failed) == 0・Saved が ["7203"]。7203 の 2026-10-06 は1行で 30000。
+// プラン 5.1: A が 7203 を保有。err が nil・len(Failed) == 0・Saved が ["7203"]。7203 の 2026-10-06 は1行で 300000（0.01 単位）。
 func TestAC13a_同じ銘柄と取引日の終値が保存済みなら取得した値で上書きして成功とする(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
@@ -74,7 +74,7 @@ func TestAC13a_同じ銘柄と取引日の終値が保存済みなら取得し�
 		t.Errorf("FetchResult.Saved: got %v, want %v", got.Saved, want)
 	}
 	assertStockPrices(t, pool, []storedClosePrice{
-		{stockCode: "7203", tradingDate: "2026-10-06", priceTenths: 30000},
+		{stockCode: "7203", tradingDate: "2026-10-06", priceHundredths: 300000},
 	})
 }
 
@@ -93,17 +93,17 @@ func (s stubPriceSource) FetchClosingPrice(_ context.Context, stockCode string) 
 		return p, nil
 	}
 	if !slices.Contains(s.unavailable, stockCode) {
-		s.t.Errorf("テスト用の取得元に、保有していない銘柄 %q が要求された（ListHeldStockCodes は保有数量が1以上の銘柄だけを返す。4.4）", stockCode)
+		s.t.Errorf("テスト用の取得元に、保有していない銘柄 %q が要求された（ListHeldStocks は保有数量が1以上の銘柄だけを返す。4.4）", stockCode)
 	}
 	return model.ClosingPrice{}, command.ErrPriceUnavailable
 }
 
 // mustClosingPrice は、4.4 の model.NewClosingPrice で終値を作る。作れなければテストを止める（0より大きい終値は作れる）。
-func mustClosingPrice(t *testing.T, code, tradingDate string, priceTenths int64) model.ClosingPrice {
+func mustClosingPrice(t *testing.T, code, tradingDate string, priceHundredths int64) model.ClosingPrice {
 	t.Helper()
-	p, err := model.NewClosingPrice(code, tradingDate, priceTenths)
+	p, err := model.NewClosingPrice(code, tradingDate, priceHundredths)
 	if err != nil {
-		t.Fatalf("model.NewClosingPrice(%q, %q, %d): %v", code, tradingDate, priceTenths, err)
+		t.Fatalf("model.NewClosingPrice(%q, %q, %d): %v", code, tradingDate, priceHundredths, err)
 	}
 	return p
 }
@@ -112,9 +112,9 @@ func mustClosingPrice(t *testing.T, code, tradingDate string, priceTenths int64)
 // 6758 については3,500円・2026-10-06 を返す → 価格の取得処理を実行する
 // → 7203 は2,900円・2026-10-05 のまま残り、6758 は保存される。
 // プラン 5.1: 保有データを 7203 → 6758 → 9984 の順に INSERT。テスト用の取得元は 7203 だけ ErrPriceUnavailable、
-// 6758 は 35000・2026-10-06、9984 は 10000・2026-10-06。7203 は元の1行のまま、6758 と 9984 が保存され、Failed は ["7203"]。
+// 6758 は 350000・2026-10-06、9984 は 100000・2026-10-06（どれも 0.01 単位）。7203 は元の1行のまま、6758 と 9984 が保存され、Failed は ["7203"]。
 // 9984 は、昇順で 7203 の後に処理される銘柄で、1銘柄（7203）の失敗で他の銘柄の取得を止めない（FR-16）ことを確かめるために足したもの。
-// あわせて 4.4「株価取得の決まり」3（Execute がエラーを返すのは ListHeldStockCodes が失敗したときだけ）と、
+// あわせて 4.4「株価取得の決まり」3（Execute がエラーを返すのは ListHeldStocks が失敗したときだけ）と、
 // FetchResult の Saved・Failed（どちらも昇順）も確かめる。
 func TestAC14_取得できなかった銘柄は保存済みの価格を残し他の銘柄の取得は止めない(t *testing.T) {
 	t.Parallel()
@@ -128,8 +128,8 @@ func TestAC14_取得できなかった銘柄は保存済みの価格を残し他
 	src := stubPriceSource{
 		t: t,
 		prices: map[string]model.ClosingPrice{
-			"6758": mustClosingPrice(t, "6758", "2026-10-06", 35000),
-			"9984": mustClosingPrice(t, "9984", "2026-10-06", 10000),
+			"6758": mustClosingPrice(t, "6758", "2026-10-06", 350000),
+			"9984": mustClosingPrice(t, "9984", "2026-10-06", 100000),
 		},
 		unavailable: []string{"7203"},
 	}
@@ -146,39 +146,60 @@ func TestAC14_取得できなかった銘柄は保存済みの価格を残し他
 		t.Errorf("FetchResult.Saved: got %v, want %v（7203 の失敗の後も 9984 を取得する）", got.Saved, want)
 	}
 	assertStockPrices(t, pool, []storedClosePrice{
-		{stockCode: "6758", tradingDate: "2026-10-06", priceTenths: 35000},
-		{stockCode: "7203", tradingDate: "2026-10-05", priceTenths: 29000}, // 保存済みの2,900円・2026-10-05 のまま
-		{stockCode: "9984", tradingDate: "2026-10-06", priceTenths: 10000},
+		{stockCode: "6758", tradingDate: "2026-10-06", priceHundredths: 350000},
+		{stockCode: "7203", tradingDate: "2026-10-05", priceHundredths: 290000}, // 保存済みの2,900円・2026-10-05 のまま
+		{stockCode: "9984", tradingDate: "2026-10-06", priceHundredths: 100000},
 	})
 }
 
-// threeStocksPriceSource は、売買履歴の要件定義の基準16・基準17 の PR① 用の取得元（テスト用の取得元 stubPriceSource）。
-// ダミーの取得元には AAPL がないので、7203・6758・AAPL のすべてに価格を持たせる（プラン 5.5）。
-// 取得してはいけない銘柄（売り切った 6758、他の利用者の AAPL）も、要求されたら保存されてしまう形にして確かめるため。
-// PR① の終値は 0.1円単位（AAPL の 180.0 は 1800）。
-func threeStocksPriceSource(t *testing.T) stubPriceSource {
-	t.Helper()
-	return stubPriceSource{
+// 基準15（要件5。PR②）: 取得元が AAPL に 180.25ドル・2026-10-06、7203 に 3,000.25円・2026-10-06 を返す → 価格の取得処理を実行する
+// → AAPL は 180.25ドルで保存され、7203 は保存されずに取得できなかった銘柄になる（円は小数第1位まで。ドルは小数第2位まで）。
+// 5.5: 7203 の 2,900円・2026-10-05 を保存済みにしておき、そのまま残ることと、Failed が ["7203"] であることも確かめる。
+// Aが 7203（円）、Bが AAPL（ドル。銘柄マスタにドルで入れる）を保有する。Saved は ["AAPL"]。
+func Test基準15_円は小数第1位まで_ドルは小数第2位までの終値だけを保存し細かい値は取得できなかった銘柄にする(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertStock(t, pool, "AAPL", "Apple", currencyUSD)
+	insertClosePrice(t, pool, "7203", "2026-10-05", "2900")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserB, "AAPL", 10, "150.25")
+	src := stubPriceSource{
 		t: t,
 		prices: map[string]model.ClosingPrice{
-			"7203": mustClosingPrice(t, "7203", "2026-10-06", 30000),
-			"6758": mustClosingPrice(t, "6758", "2026-10-06", 35000),
-			"AAPL": mustClosingPrice(t, "AAPL", "2026-10-06", 1800),
+			"AAPL": mustClosingPrice(t, "AAPL", "2026-10-06", 18025),
+			"7203": mustClosingPrice(t, "7203", "2026-10-06", 300025),
 		},
 	}
+
+	got, err := newFetchClosingPrices(src, pool).Execute(t.Context())
+
+	if err != nil {
+		t.Fatalf("Execute: got err %v, want nil（円の終値が細かすぎる銘柄は Failed に入れ、Execute はエラーにしない）", err)
+	}
+	if want := []string{"7203"}; !slices.Equal(got.Failed, want) {
+		t.Errorf("FetchResult.Failed: got %v, want %v（7203 の 3,000.25円は円の精度（小数第1位まで）に合わない）", got.Failed, want)
+	}
+	if want := []string{"AAPL"}; !slices.Equal(got.Saved, want) {
+		t.Errorf("FetchResult.Saved: got %v, want %v", got.Saved, want)
+	}
+	assertStockPrices(t, pool, []storedClosePrice{
+		{stockCode: "7203", tradingDate: "2026-10-05", priceHundredths: 290000}, // 保存済みの2,900円・2026-10-05 のまま
+		{stockCode: "AAPL", tradingDate: "2026-10-06", priceHundredths: 18025},
+	})
 }
 
 // 基準16（要件16）: Aが 7203「買 2,500円 100株」と 6758「買 3,200円 10株」「売 3,500円 10株」、Bが AAPL「買 150.25ドル 10株」を持ち、
-// どれも価格は未保存 → 定時の取得処理（FetchClosingPrices.Execute）を実行する → 7203 と AAPL の価格が保存され、6758 は保存されない
+// どれも価格は未保存 → 定時の取得処理（FetchClosingPrices.Execute）をダミーの取得元で実行する → 7203 と AAPL の価格が保存され、6758 は保存されない
 // （売り切った銘柄の価格は取得しない。他の利用者だけが保有する銘柄は取得する）。
-// 取得元は、PR① ではダミーに AAPL がないので、3銘柄すべてに価格を持つテスト用の取得元（threeStocksPriceSource）。
+// PR② で取得元はダミー（pricesource.NewDummyPriceSource。7203=3,000円・6758=3,500円・AAPL=180.00ドル、どれも 2026-10-06）にする
+// （ダミーは取得してはいけない 6758 の価格も持つので、要求したら保存されてしまう形で確かめられる。プラン 5.1）。
 // Saved は昇順（COLLATE "C" のバイト順）で ["7203", "AAPL"]、Failed は空。
 func Test基準16_定時の取得は売り切った銘柄を取得せず誰かが保有する銘柄だけを取得して保存する(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
 	insertTradeHistoryGiven(t, pool)
 
-	got, err := newFetchClosingPrices(threeStocksPriceSource(t), pool).Execute(t.Context())
+	got, err := newFetchClosingPrices(pricesource.NewDummyPriceSource(), pool).Execute(t.Context())
 
 	if err != nil {
 		t.Fatalf("Execute: got err %v, want nil", err)
@@ -190,7 +211,7 @@ func Test基準16_定時の取得は売り切った銘柄を取得せず誰か�
 		t.Errorf("FetchResult.Saved: got %v, want %v（売り切った 6758 は含めない）", got.Saved, want)
 	}
 	assertStockPrices(t, pool, []storedClosePrice{
-		{stockCode: "7203", tradingDate: "2026-10-06", priceTenths: 30000},
-		{stockCode: "AAPL", tradingDate: "2026-10-06", priceTenths: 1800},
+		{stockCode: "7203", tradingDate: "2026-10-06", priceHundredths: 300000},
+		{stockCode: "AAPL", tradingDate: "2026-10-06", priceHundredths: 18000},
 	})
 }
