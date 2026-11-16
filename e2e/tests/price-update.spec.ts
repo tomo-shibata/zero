@@ -6,6 +6,18 @@ import {
   type StockPriceSeed,
   type StockSeed,
 } from '../fixtures/db'
+import {
+  SUMMARY_LABEL,
+  cardList,
+  expectCardData,
+  holdingCard,
+  holdingCards,
+  summaryRegion,
+} from '../fixtures/holdings-page'
+
+// カード表示（要件 docs/requirements/holdings-cards.md、プラン docs/plans/holdings-cards/plan.md 5.2）: 「表」「行」はカード、「合計評価額」は合計の欄の評価額に
+// 読み替える（「既存の要件の置き換え」。確かめる値は変えない）。表が前提だったもの（表の領域への Tab、表の横スクロール、横にスクロールしたときのメニュー）は、
+// 要件の部分（メニューが画面の中に出る、など）だけをカードで確かめ直し、表の横スクロールの部分は消した。カードを読む補助は fixtures/holdings-page.ts。
 
 // 仕様: 要件 docs/requirements/price-update.md（値段の更新）の E2E の基準と、補助のテスト。
 // テスト計画: プラン docs/plans/price-update/plan.md 5.1・5.2 の E2E の行（このファイルは PR① の分: 今すぐ更新、PR② の分: 「⋯」のメニューと銘柄の削除）。
@@ -36,7 +48,8 @@ const PRICE_REFRESH_API = '**/api/price-refresh'
 
 // ---- 画面の文言（要件16〜19、プラン 4.4） ----
 const PAGE_TITLE = '保有株式一覧'
-const TOTAL_LABEL = '合計評価額'
+/** 合計の欄の見出し（カード表示で「合計評価額」から「合計」になった。holdings-cards.md の要件11）。 */
+const TOTAL_LABEL = SUMMARY_LABEL
 const EMPTY_MESSAGE = '保有株式はありません'
 const UNAVAILABLE = '取得できません'
 const REFRESH_REGION = '価格の更新'
@@ -105,28 +118,19 @@ function holdingsHeading(page: Page): Locator {
   return page.getByRole('heading', { name: PAGE_TITLE, exact: true })
 }
 
-/** 合計の領域（<section aria-label="合計評価額">）。 */
+/** 合計の欄（region「合計」）。 */
 function totalRegion(page: Page): Locator {
-  return page.getByRole('region', { name: TOTAL_LABEL, exact: true })
+  return summaryRegion(page)
 }
 
+/** カードの並び（<ul aria-label="保有株式">）。一覧が表示されているかを見るのに使う（表はなくなった）。 */
 function holdingsTable(page: Page): Locator {
-  return page.getByRole('table')
+  return cardList(page)
 }
 
-/** 銘柄コードのセルが code と一致するデータ行。 */
+/** 銘柄コードが code のカード。 */
 function holdingRow(page: Page, code: string): Locator {
-  return holdingsTable(page)
-    .getByRole('row')
-    .filter({ has: page.getByRole('cell', { name: code, exact: true }) })
-}
-
-/**
- * 行のデータの7セル（銘柄コード・銘柄名・保有数量・取得価格・現在の価格・価格の基準日・評価額）。
- * 後の PR で行の右端に「⋯」の列が足されても、同じ確かめが使えるよう、先頭の7つのセルだけを選ぶ。
- */
-function dataCells(row: Locator): Locator {
-  return row.locator('td:nth-child(-n+7)')
+  return holdingCard(page, code)
 }
 
 /** 行の「⋯」のボタン。アクセシブルな名前は「<銘柄名>の操作」（要件2）。 */
@@ -148,14 +152,14 @@ async function openDeleteConfirm(page: Page, name: string): Promise<Locator> {
   return dialog
 }
 
-/** 7203 の2件（400株・2,750円）と終値3,000円・2026-10-06 をまとめた行のデータの7セル。 */
-const TOYOTA_400_PRICED_ROW = ['7203', 'トヨタ自動車', '400株', '2,750円', '3,000円', '2026-10-06', '1,200,000円']
-/** 6758 の50株・3,200円と終値3,500円・2026-10-06 の行のデータの7セル。 */
-const SONY_50_PRICED_ROW = ['6758', 'ソニーグループ', '50株', '3,200円', '3,500円', '2026-10-06', '175,000円']
+/** 7203 の2件（400株・2,750円）と終値3,000円・2026-10-06 をまとめたカードの7つの項目。 */
+const TOYOTA_400_PRICED_ROW = ['7203', 'トヨタ自動車', '400株', '2,750円', '3,000円', '2026-10-06', '1,200,000円'] as const
+/** 6758 の50株・3,200円と終値3,500円・2026-10-06 のカードの7つの項目。 */
+const SONY_50_PRICED_ROW = ['6758', 'ソニーグループ', '50株', '3,200円', '3,500円', '2026-10-06', '175,000円'] as const
 
-/** 7203 の行のデータの7セルが、7203 の2件（400株・2,750円。価格は未保存）をまとめた値であること。 */
+/** 7203 のカードの7つの項目が、7203 の2件（400株・2,750円。価格は未保存）をまとめた値であること。 */
 async function expectToyotaRowMerged(page: Page): Promise<void> {
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+  await expectCardData(holdingRow(page, '7203'), [
     '7203',
     'トヨタ自動車',
     '400株',
@@ -205,7 +209,7 @@ test('基準25（要件16・要件17・要件18）: 7203 と 9984 を保有し�
   await page.goto(HOLDINGS_PATH)
 
   // Given の確認: 更新の前は、7203 の現在の価格・価格の基準日・評価額は「取得できません」。
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+  await expectCardData(holdingRow(page, '7203'), [
     '7203',
     'トヨタ自動車',
     '100株',
@@ -219,7 +223,7 @@ test('基準25（要件16・要件17・要件18）: 7203 と 9984 を保有し�
   await refreshButton(page).click()
 
   // Then: 7203 の行に「3,000円 / 2026-10-06 / 300,000円」が表示される（一覧を取得し直した結果。基準日は America/Los_Angeles でもずれない）。
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+  await expectCardData(holdingRow(page, '7203'), [
     '7203',
     'トヨタ自動車',
     '100株',
@@ -228,10 +232,10 @@ test('基準25（要件16・要件17・要件18）: 7203 と 9984 を保有し�
     '2026-10-06',
     '300,000円',
   ])
-  // 合計評価額も取得し直されている（要件18）。9984 は価格がないままなので、合計には含めない。
+  // 合計の欄の評価額も取得し直されている（要件18）。9984 は価格がないままなので、合計には含めない。
   await expect(totalRegion(page)).toContainText(amountPattern('300,000円'))
-  // 9984 の行は取得できなかったので、価格のないまま。
-  await expect(dataCells(holdingRow(page, '9984'))).toHaveText([
+  // 9984 のカードは取得できなかったので、価格のないまま。
+  await expectCardData(holdingRow(page, '9984'), [
     '9984',
     'ソフトバンクグループ',
     '50株',
@@ -293,7 +297,7 @@ async function expectRefreshRequestFailedAndListStillShown(page: Page): Promise<
   await expect(alert).toHaveText(REFRESH_REQUEST_ERROR_MESSAGE)
   // 失敗の応答が返った（要求が終わった）後も、一覧と合計評価額は表示されたまま。
   await expect(holdingsHeading(page)).toBeVisible()
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+  await expectCardData(holdingRow(page, '7203'), [
     '7203',
     'トヨタ自動車',
     '100株',
@@ -362,7 +366,7 @@ test('補助・判断31・要件19（キーボード操作のフォーカス・�
   await expect(button).toBeFocused()
 })
 
-test('補助・判断31（更新中に移したフォーカスは取り上げない）: Enter で押した後、更新中に Tab で表の横スクロールの領域へフォーカスを移すと、更新が終わって結果の文言が出た後も、フォーカスは表の領域にあり、ボタンに奪い返されない', async ({ page }) => {
+test('補助・判断31（更新中に移したフォーカスは取り上げない）: Enter で押した後、更新中にフォーカスを7203 のカードの「⋯」へ移すと、更新が終わって結果の文言が出た後も、フォーカスは「⋯」にあり、ボタンに奪い返されない', async ({ page }) => {
   // Given: 利用者Aが 7203 を保有。今すぐ更新の API は 1500ms 後に、実際の応答をそのまま返す
   // （更新中に Tab を押して確かめる間、更新中の状態を保つための長めの遅延）。
   await insertHoldingsData({ trades: [TOYOTA_100] })
@@ -373,22 +377,22 @@ test('補助・判断31（更新中に移したフォーカスは取り上げな
   await page.goto(HOLDINGS_PATH)
   const button = refreshButton(page)
   await expect(button).toBeVisible()
-  // 表の横スクロールの領域（role="region"、名前は見出し「保有株式一覧」。Tab で止まれる）。
-  const tableRegion = page.getByRole('region', { name: PAGE_TITLE, exact: true })
+  // 更新中にフォーカスを移す先: 7203 のカードの「⋯」（表の横スクロールの領域がなくなったので、カードの中の Tab で止まれる要素に替えた）。
+  const otherElement = operationButton(page, 'トヨタ自動車')
 
   // キーボードでボタンを押す。更新中になる（ボタンは押せなくなり、文言は「更新中…」）。
   await button.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('button', { name: '更新中…', exact: true })).toBeDisabled()
 
-  // 更新中に Tab で、次に止まれる表の領域へフォーカスを移す。
-  await page.keyboard.press('Tab')
-  await expect(tableRegion).toBeFocused()
+  // 更新中に、ボタンの外の「⋯」へフォーカスを移す。
+  await otherElement.focus()
+  await expect(otherElement).toBeFocused()
 
-  // 更新が終わり（結果の文言が出て、ボタンが押せる状態に戻る）ても、フォーカスは表の領域のまま。ボタンに取り戻さない。
+  // 更新が終わり（結果の文言が出て、ボタンが押せる状態に戻る）ても、フォーカスは「⋯」のまま。ボタンに取り戻さない。
   await expect(refreshRegion(page).getByRole('status').locator('p')).toHaveText([REFRESH_SAVED_MESSAGE])
   await expect(button).toBeEnabled()
-  await expect(tableRegion).toBeFocused()
+  await expect(otherElement).toBeFocused()
   await expect(button).not.toBeFocused()
 })
 
@@ -436,7 +440,7 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
   await page.goto(HOLDINGS_PATH)
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_400_PRICED_ROW)
+  await expectCardData(holdingRow(page, '7203'), TOYOTA_400_PRICED_ROW)
   await expect(totalRegion(page)).toContainText(amountPattern('1,375,000円'))
 
   // When: 7203 の「⋯」→「削除」を選ぶ。
@@ -454,8 +458,8 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
   // Then: ダイアログが閉じ、一覧に 7203 の行はなく、6758 の行だけが表示される（一覧を取得し直した結果）。
   await expect(dialog).toHaveCount(0)
   await expect(holdingRow(page, '7203')).toHaveCount(0)
-  await expect(page.locator('tbody tr')).toHaveCount(1)
-  await expect(dataCells(holdingRow(page, '6758'))).toHaveText(SONY_50_PRICED_ROW)
+  await expect(holdingCards(page)).toHaveCount(1)
+  await expectCardData(holdingRow(page, '6758'), SONY_50_PRICED_ROW)
   // 合計評価額も取り直されている（7203 の 1,200,000円 が抜けて 175,000円 になる。1,375,000円 は残っていない）。
   await expect(totalRegion(page)).toContainText(amountPattern('175,000円'))
   await expect(totalRegion(page)).not.toContainText('1,375,000円')
@@ -464,10 +468,10 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
 
   // 画面の表示だけでなく、サーバーの売買履歴が消えている（開き直しても 7203 の行はない）。
   await page.reload()
-  await expect(dataCells(holdingRow(page, '6758'))).toHaveText(SONY_50_PRICED_ROW)
+  await expectCardData(holdingRow(page, '6758'), SONY_50_PRICED_ROW)
   await expect(totalRegion(page)).toContainText(amountPattern('175,000円'))
   await expect(holdingRow(page, '7203')).toHaveCount(0)
-  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await expect(holdingCards(page)).toHaveCount(1)
 })
 
 test('基準19（売買履歴の要件18）: 7203 を売買履歴3件、6758 を1件で持ち、7203 の「⋯」→「削除」を選ぶと「この銘柄の売買履歴はすべて削除されます。」の確認のダイアログが開き、「削除する」を押すとダイアログが閉じ、一覧は 6758 の行だけになる', async ({ page }) => {
@@ -482,7 +486,7 @@ test('基準19（売買履歴の要件18）: 7203 を売買履歴3件、6758 を
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
   await page.goto(HOLDINGS_PATH)
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+  await expectCardData(holdingRow(page, '7203'), [
     '7203',
     'トヨタ自動車',
     '300株',
@@ -505,8 +509,8 @@ test('基準19（売買履歴の要件18）: 7203 を売買履歴3件、6758 を
   // Then: ダイアログが閉じ、一覧は 6758 の行だけになる。
   await expect(dialog).toHaveCount(0)
   await expect(holdingRow(page, '7203')).toHaveCount(0)
-  await expect(page.locator('tbody tr')).toHaveCount(1)
-  await expect(dataCells(holdingRow(page, '6758'))).toHaveText(SONY_50_PRICED_ROW)
+  await expect(holdingCards(page)).toHaveCount(1)
+  await expectCardData(holdingRow(page, '6758'), SONY_50_PRICED_ROW)
 })
 
 test('基準22（要件13）: 6758・7203（2件）・9984 を保有し、確認のダイアログで「キャンセル」を押すとダイアログが閉じ、7203 の行は「400株」のまま表示され、フォーカスは「トヨタ自動車の操作」に戻り、開き直しても 7203 は「400株」のままである', async ({ page }) => {
@@ -522,14 +526,14 @@ test('基準22（要件13）: 6758・7203（2件）・9984 を保有し、確認
   // Then: ダイアログが閉じ、7203 の行は「400株」のまま表示されている。
   await expect(dialog).toHaveCount(0)
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(3)
+  await expect(holdingCards(page)).toHaveCount(3)
   // 閉じた後のフォーカスは、開いた行の「⋯」（先頭の 6758 や最後の 9984 ではない。プラン 4.4「閉じた後のフォーカス」）。
   await expect(operationButton(page, 'トヨタ自動車')).toBeFocused()
 
   // 裏で消していない（開き直しても 7203 の行は「400株」のまま）。
   await page.reload()
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(3)
+  await expect(holdingCards(page)).toHaveCount(3)
 })
 
 test('補助 判断22・要件13（基準22 の補足）: 確認のダイアログは Esc でもキャンセルと同じに閉じ（何も消えない）、フォーカスは「トヨタ自動車の操作」に戻る', async ({ page }) => {
@@ -564,7 +568,7 @@ test('補助 判断33（基準21 の補足）: 確認のダイアログを開い
   await expectToyotaRowMerged(page)
   await page.reload()
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(3)
+  await expect(holdingCards(page)).toHaveCount(3)
 })
 
 test('補助 判断13（要件14）: 削除の要求が終わるまで「削除する」は押せず、押し直そうとしても削除の要求は1回だけ送られ、終わるとダイアログが閉じて 7203 の行がなくなる', async ({ page }) => {
@@ -608,7 +612,7 @@ async function expectDeleteFailedAndDialogStillOpen(page: Page, dialog: Locator)
   await expect(dialog.getByRole('button')).toHaveText([DELETE_CANCEL_BUTTON, DELETE_CONFIRM_BUTTON])
   // 一覧は変えない（7203 の行は残っている）。
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(2)
+  await expect(holdingCards(page)).toHaveCount(2)
 }
 
 test('基準24（要件15）: 銘柄の削除の API が HTTP 500 を返すとき、「削除する」を押してもダイアログは開いたまま「削除できませんでした」と表示され、一覧の 7203 の行は残っている', async ({ page }) => {
@@ -719,7 +723,7 @@ test('補助 判断37（要件13）: マウスで「削除する」を押した�
   held.release()
   await expect(dialog).toHaveCount(0)
   await expect(holdingRow(page, '7203')).toHaveCount(0)
-  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await expect(holdingCards(page)).toHaveCount(1)
   await expect(holdingsHeading(page)).toBeFocused()
 })
 
@@ -741,7 +745,7 @@ test('補助 判断37（要件13）: キーボード（Tab で移って Enter）
   held.release()
   await expect(dialog).toHaveCount(0)
   await expect(holdingRow(page, '7203')).toHaveCount(0)
-  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await expect(holdingCards(page)).toHaveCount(1)
   await expect(holdingsHeading(page)).toBeFocused()
 })
 
@@ -798,7 +802,7 @@ test('補助 要件14・要件15（失敗の後に押し直す）: 1回目の削
   await confirm.click()
   await expect(dialog).toHaveCount(0)
   await expect(holdingRow(page, '7203')).toHaveCount(0)
-  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await expect(holdingCards(page)).toHaveCount(1)
   expect(deleteRequests).toBe(2)
 })
 
@@ -824,11 +828,11 @@ test('補助 要件13・要件15（失敗の後にキャンセルする）: 削�
   await expect(dialog).toHaveCount(0)
   await expect(operationButton(page, 'トヨタ自動車')).toBeFocused()
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(3)
+  await expect(holdingCards(page)).toHaveCount(3)
   // 裏でも消えていない。
   await page.reload()
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(3)
+  await expect(holdingCards(page)).toHaveCount(3)
 })
 
 test('補助 判断31 と同じ方法（デザインの指摘3）: キーボードで「削除する」を押して（Tab で移って Enter）削除が遅れて失敗した後、フォーカスは「削除する」にある', async ({ page }) => {
@@ -882,9 +886,10 @@ test('補助 デザインの指摘1: 幅 375px で保有のある一覧を開い
   expect(widths.scrollWidth).toBeLessThanOrEqual(widths.clientWidth)
 })
 
-test('補助 ステップ6 デザインの指摘1（ドルの合計）: 幅 375px で、円の合計が 123,456,789円・ドルの合計が 1,234,567.50ドル（価格のない銘柄を含むのでドルの行に注記が出る）のとき、ページ全体は横にスクロールせず、合計の金額は数字と「円」「ドル」が同じ行にあり切れていない', async ({ page }) => {
+test('補助 ステップ6 デザインの指摘1（ドルの合計）: 幅 375px で、円の評価額の合計が 123,456,789円・ドルの評価額の合計が 1,234,567.50ドル（価格のない銘柄を含むのでドルの部分に注記が出る）のとき、ページ全体は横にスクロールせず、合計の欄の評価額は数字と「円」「ドル」が同じ行にあり、含み損益の文字も切れていない', async ({ page }) => {
   // Given: 7203（3,607株。終値 34,227円 → 123,456,789円）、AAPL（50株。終値 24,691.35ドル → 1,234,567.50ドル）、
-  //   MSFT（価格なし）を保有。合計評価額は、円の行（注記なし）とドルの行（MSFT を含まない注記つき）になる。
+  //   MSFT（価格なし）を保有。合計の欄は、円の部分（注記なし）とドルの部分（MSFT を含まない注記つき）になる。
+  //   含み損益の合計: 円は 123,456,789 − 108,210,000 ＝ +15,246,789円（+14.1%）、ドルは 1,234,567.50 − 617,283.50 ＝ +617,284.00ドル（+100.0%）。
   await insertHoldingsData({
     stocks: [APPLE, MICROSOFT],
     trades: [TOYOTA_3607_BIG, APPLE_50_BIG, MICROSOFT_5],
@@ -894,23 +899,28 @@ test('補助 ステップ6 デザインの指摘1（ドルの合計）: 幅 375p
 
   await page.goto(HOLDINGS_PATH)
 
-  // 合計の金額が期待どおりに出ている（幅を測る金額がこの値であることの確認）。
-  const rows = totalRegion(page).getByRole('listitem')
-  await expect(rows).toHaveCount(2)
-  const amounts = rows.locator('p:first-child')
-  await expect(amounts).toHaveText(['123,456,789円', '1,234,567.50ドル'])
-  await expect(rows.nth(1)).toContainText('価格を取得できない銘柄を含みません')
+  // 合計の欄の中身が期待どおりに出ている（幅を測る金額がこの値であることの確認）。
+  const parts = totalRegion(page).getByRole('region')
+  await expect(parts).toHaveCount(2)
+  const yenAmount = parts.nth(0).getByText('123,456,789円', { exact: true })
+  const usdAmount = parts.nth(1).getByText('1,234,567.50ドル', { exact: true })
+  await expect(yenAmount).toHaveCount(1)
+  await expect(usdAmount).toHaveCount(1)
+  await expect(parts.nth(0).locator('[data-tone]')).toHaveText('+15,246,789円（+14.1%）')
+  await expect(parts.nth(1).locator('[data-tone]')).toHaveText('+617,284.00ドル（+100.0%）')
+  await expect(parts.nth(1)).toContainText('価格を取得できない銘柄を含みません')
 
-  // ページ全体は横にスクロールしない（表の領域の中は横にスクロールしてよい）。
+  // ページ全体は横にスクロールしない。
   const widths = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
   }))
   expect(widths.scrollWidth, 'ページ全体の scrollWidth').toBeLessThanOrEqual(widths.clientWidth)
 
-  // 合計の金額の要素の中で、数字と「円」「ドル」が同じ行にある（「ドル」だけ次の行に分かれない）。
+  // 評価額の要素の中で、数字と「円」「ドル」が同じ行にある（「ドル」だけ次の行に分かれない）。
   // 文字の箱（Range の getClientRects）の上端を丸めた値の種類が1つ = 1行。切れて（はみ出して）もいない。
-  const shapes = await amounts.evaluateAll((elements) =>
+  // 含み損益と率は大きな文字なので、狭い画面で折り返してよい。ただし、切れて（はみ出して）はいない。
+  const lineShapes = (elements: Element[]) =>
     elements.map((element) => {
       const range = document.createRange()
       range.selectNodeContents(element)
@@ -920,16 +930,21 @@ test('補助 ステップ6 デザインの指摘1（ドルの合計）: 幅 375p
         lines: lineTops.size,
         clipped: element.scrollWidth > element.clientWidth,
       }
-    }),
-  )
-  expect(shapes).toHaveLength(2)
-  shapes.forEach((shape) => {
+    })
+  const amountShapes = [...(await yenAmount.evaluateAll(lineShapes)), ...(await usdAmount.evaluateAll(lineShapes))]
+  expect(amountShapes).toHaveLength(2)
+  amountShapes.forEach((shape) => {
     expect(shape.lines, `「${String(shape.text)}」の行数`).toBe(1)
+    expect(shape.clipped, `「${String(shape.text)}」が切れている`).toBe(false)
+  })
+  const gainShapes = await totalRegion(page).locator('[data-tone]').evaluateAll(lineShapes)
+  expect(gainShapes).toHaveLength(2)
+  gainShapes.forEach((shape) => {
     expect(shape.clipped, `「${String(shape.text)}」が切れている`).toBe(false)
   })
 })
 
-test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）で、画面のイメージのデータに長い銘柄名・小数つきの取得価格・大きな数量と価格の行・ドルの大きな値の行を足して開くと、表の横スクロールの領域に横のスクロールが出ず、押す前から各行の「⋯」が領域の中にある', async ({ page }) => {
+test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）で、画面のイメージのデータに長い銘柄名・小数つきの取得価格・大きな数量と価格のカード・ドルの大きな値のカードを足して開くと、どのカードも横にはみ出さず、値は切れず、押す前から各カードの「⋯」がカードの中にある', async ({ page }) => {
   // Given: 要件定義の「画面のイメージ」と同じ 7203 トヨタ自動車（400株・2,750円・価格あり）と、
   //   9984 ソフトバンクグループ（100株・4,500円・価格なしで価格の3列が「取得できません」）に、
   //   実際の銘柄名に多い長い名前の行を足す: 8306 三菱ＵＦＪフィナンシャル・グループ（16文字。100株・1,500円・価格なし）。
@@ -968,7 +983,7 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
 
   await page.goto(HOLDINGS_PATH)
 
-  await expect(dataCells(holdingRow(page, '9984'))).toHaveText([
+  await expectCardData(holdingRow(page, '9984'), [
     '9984',
     'ソフトバンクグループ',
     '100株',
@@ -977,25 +992,8 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
     UNAVAILABLE,
     UNAVAILABLE,
   ])
-  // 長い銘柄名の行: 銘柄名のセルは2行以上に折り返し（切れず）、ほかのデータの6つのセルは1行のまま（判断39）。
-  const longRowCells = dataCells(holdingRow(page, LONG_NAME_CODE))
-  await expect(longRowCells).toHaveCount(7)
-  const cellShapes = await longRowCells.evaluateAll((cells) =>
-    cells.map((cell) => {
-      const range = document.createRange()
-      range.selectNodeContents(cell)
-      const lineTops = new Set(Array.from(range.getClientRects()).map((rect) => Math.round(rect.top)))
-      return { lines: lineTops.size, clipped: cell.scrollWidth > cell.clientWidth }
-    }),
-  )
-  const NAME_CELL = 1
-  expect(cellShapes[NAME_CELL]?.lines, '銘柄名のセルの行数').toBeGreaterThanOrEqual(2)
-  expect(cellShapes[NAME_CELL]?.clipped, '銘柄名のセルが切れている').toBe(false)
-  cellShapes.forEach((shape, index) => {
-    if (index !== NAME_CELL) expect(shape.lines, `${index + 1}つ目のセルの行数`).toBe(1)
-  })
-  // 小数つきの取得価格の行と、大きな数量・価格の行が、期待どおりに表示されている（幅を測る行がこの値であることの確認）。
-  await expect(dataCells(holdingRow(page, '6758'))).toHaveText([
+  // 小数つきの取得価格のカードと、大きな数量・価格のカードが、期待どおりに表示されている（幅を測るカードがこの値であることの確認）。
+  await expectCardData(holdingRow(page, '6758'), [
     '6758',
     'ソニーグループ',
     '300株',
@@ -1004,7 +1002,7 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
     '2026-10-06',
     '1,050,000円',
   ])
-  await expect(dataCells(holdingRow(page, BIG_QUANTITY_CODE))).toHaveText([
+  await expectCardData(holdingRow(page, BIG_QUANTITY_CODE), [
     BIG_QUANTITY_CODE,
     BIG_QUANTITY_NAME,
     '10,000株',
@@ -1013,8 +1011,7 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
     '2026-10-06',
     '123,456,000円',
   ])
-  // 長いカタカナの名前の行（6752 パナソニックホールディングス）: 銘柄名のセルが切れていない。
-  await expect(dataCells(holdingRow(page, KATAKANA_NAME_CODE))).toHaveText([
+  await expectCardData(holdingRow(page, KATAKANA_NAME_CODE), [
     KATAKANA_NAME_CODE,
     KATAKANA_NAME,
     '100株',
@@ -1023,9 +1020,8 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
     UNAVAILABLE,
     UNAVAILABLE,
   ])
-  // ドルの大きな値の行（AAPL）: 取得価格 12,345.67ドル・現在の価格 24,691.35ドル・評価額 1,234,567.50ドル が表示され、
-  // どのセルも1行のまま（「ドル」だけ次の行に分かれない）で、切れていない。
-  await expect(dataCells(holdingRow(page, 'AAPL'))).toHaveText([
+  // ドルの大きな値のカード（AAPL）: 取得価格 12,345.67ドル・現在の価格 24,691.35ドル・評価額 1,234,567.50ドル が表示される。
+  await expectCardData(holdingRow(page, 'AAPL'), [
     'AAPL',
     'Apple',
     '50株',
@@ -1034,37 +1030,103 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
     '2026-10-06',
     '1,234,567.50ドル',
   ])
-  const usdRowShapes = await dataCells(holdingRow(page, 'AAPL')).evaluateAll((cells) =>
-    cells.map((cell) => {
+
+  // 判断39 の趣旨（カードの中身が切れず、「⋯」がカードの右上の内側にある）。表の列の幅や横スクロールの領域はなくなったので、カードの箱で確かめる:
+  //   - どのカードも、横にはみ出していない（カードの scrollWidth が clientWidth 以下）。
+  //   - カードの中の値（<dd>）は、数字と「円」「ドル」が同じ行にあり、切れていない。AAPL の大きなドルの値も同じ。
+  //   - 長い銘柄名のカード・長いカタカナの銘柄名のカードも、銘柄名の文字がカードの中に収まる。
+  //   - 各カードの「⋯」の箱が、そのカードの箱の中にある。
+  const cardNames = ['トヨタ自動車', 'ソフトバンクグループ', LONG_NAME, 'ソニーグループ', BIG_QUANTITY_NAME, KATAKANA_NAME, 'Apple']
+  const cardShapes = await holdingCards(page).evaluateAll((cards, names) => {
+    const lineCount = (element: Element): number => {
       const range = document.createRange()
-      range.selectNodeContents(cell)
-      const lineTops = new Set(Array.from(range.getClientRects()).map((rect) => Math.round(rect.top)))
-      return { lines: lineTops.size, clipped: cell.scrollWidth > cell.clientWidth }
-    }),
-  )
-  usdRowShapes.forEach((shape, index) => {
-    expect(shape.lines, `AAPL の行の${index + 1}つ目のセルの行数`).toBe(1)
-    expect(shape.clipped, `AAPL の行の${index + 1}つ目のセルが切れている`).toBe(false)
-  })
-  const katakanaNameCell = dataCells(holdingRow(page, KATAKANA_NAME_CODE)).nth(1)
-  const katakanaNameShape = await katakanaNameCell.evaluate((cell) => ({ scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth }))
-  expect(katakanaNameShape.scrollWidth, '長いカタカナの銘柄名のセルが切れている').toBeLessThanOrEqual(katakanaNameShape.clientWidth)
-  const region = page.getByRole('region', { name: PAGE_TITLE, exact: true })
-  // 表の横スクロールの領域に、横のスクロールが出ない（表が領域の幅に収まっている）。
-  const overflow = await region.evaluate((element) => ({
-    scrollWidth: element.scrollWidth,
-    clientWidth: element.clientWidth,
-  }))
-  expect(overflow.scrollWidth, '領域の横スクロールの幅（scrollWidth）').toBeLessThanOrEqual(overflow.clientWidth)
-  const regionBox = await region.boundingBox()
-  if (regionBox === null) throw new Error('表の横スクロールの領域の位置を取れない')
-  // 押す前に、「⋯」のボタンの右端が領域の右端より内側にある（横にスクロールしないと見えない位置ではない）。
-  for (const name of ['トヨタ自動車', 'ソフトバンクグループ', LONG_NAME, 'ソニーグループ', BIG_QUANTITY_NAME, KATAKANA_NAME, 'Apple']) {
-    const box = await operationButton(page, name).boundingBox()
-    if (box === null) throw new Error(`${name}の「⋯」の位置を取れない`)
-    expect(box.x + box.width, `${name}の「⋯」の右端`).toBeLessThanOrEqual(regionBox.x + regionBox.width)
-    expect(box.x, `${name}の「⋯」の左端`).toBeGreaterThanOrEqual(regionBox.x)
+      range.selectNodeContents(element)
+      return new Set(Array.from(range.getClientRects()).map((rect) => Math.round(rect.top))).size
+    }
+    return cards.map((card) => {
+      const cardRect = card.getBoundingClientRect()
+      const cardText = card.textContent ?? ''
+      const valueShapes = Array.from(card.querySelectorAll('dd')).map((value) => ({
+        text: value.textContent,
+        lines: lineCount(value),
+        clipped: value.scrollWidth > value.clientWidth,
+      }))
+      // 銘柄名の要素（文字がちょうど銘柄名の要素）と、含み損益と率の要素（data-tone）も、切れていない（scrollWidth が clientWidth 以下）。
+      const nameElements = Array.from(card.querySelectorAll('*')).filter(
+        (element) => element.children.length === 0 && names.includes(element.textContent ?? ''),
+      )
+      const nameShapes = nameElements.map((element) => ({
+        text: element.textContent,
+        lines: lineCount(element),
+        clipped: element.scrollWidth > element.clientWidth,
+      }))
+      const toneShapes = Array.from(card.querySelectorAll('[data-tone]')).map((element) => ({
+        text: element.textContent,
+        clipped: element.scrollWidth > element.clientWidth,
+      }))
+      const textOverflows = Array.from(card.querySelectorAll('*')).filter(
+        (element) => element.getBoundingClientRect().right > cardRect.right + 0.5,
+      ).length
+      return { cardText, clipped: card.scrollWidth > card.clientWidth, valueShapes, nameShapes, toneShapes, textOverflows }
+    })
+  }, cardNames)
+  expect(cardShapes).toHaveLength(7)
+  for (const shape of cardShapes) {
+    expect(shape.clipped, `カード「${shape.cardText.slice(0, 12)}」が横にはみ出している`).toBe(false)
+    expect(shape.textOverflows, `カード「${shape.cardText.slice(0, 12)}」の中に、カードの右端より外へ出ている要素がある`).toBe(0)
+    for (const value of shape.valueShapes) {
+      expect(value.lines, `カード「${shape.cardText.slice(0, 12)}」の値「${String(value.text)}」の行数`).toBe(1)
+      expect(value.clipped, `カード「${shape.cardText.slice(0, 12)}」の値「${String(value.text)}」が切れている`).toBe(false)
+    }
+    expect(shape.nameShapes, `カード「${shape.cardText.slice(0, 12)}」の銘柄名の要素が1つ`).toHaveLength(1)
+    for (const name of shape.nameShapes) {
+      expect(name.clipped, `カード「${shape.cardText.slice(0, 12)}」の銘柄名「${String(name.text)}」が切れている`).toBe(false)
+    }
+    expect(shape.toneShapes, `カード「${shape.cardText.slice(0, 12)}」の含み損益と率の要素が1つ`).toHaveLength(1)
+    for (const tone of shape.toneShapes) {
+      expect(tone.clipped, `カード「${shape.cardText.slice(0, 12)}」の含み損益と率「${String(tone.text)}」が切れている`).toBe(false)
+    }
   }
+  // 押す前に、「⋯」のボタンの箱が、そのカードの箱の中（右端の内側）にある（要件6: 「⋯」はカードの右上）。
+  for (const [code, name] of [
+    ['7203', 'トヨタ自動車'],
+    ['9984', 'ソフトバンクグループ'],
+    [LONG_NAME_CODE, LONG_NAME],
+    ['6758', 'ソニーグループ'],
+    [BIG_QUANTITY_CODE, BIG_QUANTITY_NAME],
+    [KATAKANA_NAME_CODE, KATAKANA_NAME],
+    ['AAPL', 'Apple'],
+  ] as const) {
+    const cardBox = await holdingRow(page, code).boundingBox()
+    const box = await operationButton(page, name).boundingBox()
+    if (cardBox === null || box === null) throw new Error(`${name}のカードか「⋯」の位置を取れない`)
+    expect(box.x + box.width, `${name}の「⋯」の右端`).toBeLessThanOrEqual(cardBox.x + cardBox.width)
+    expect(box.x, `${name}の「⋯」の左端`).toBeGreaterThanOrEqual(cardBox.x)
+    expect(box.y, `${name}の「⋯」の上端`).toBeGreaterThanOrEqual(cardBox.y)
+    expect(box.y + box.height, `${name}の「⋯」の下端`).toBeLessThanOrEqual(cardBox.y + cardBox.height)
+  }
+
+  // 長い銘柄名（16文字）は、幅 1280px のカードの中身の幅（約 253px）には1行で収まる。画面を 260px まで狭めて（1列で、カードの中身の幅が約 172px）、
+  // 長い銘柄名の銘柄名は、切れずに2行以上に折り返す（元の表のテストの「銘柄名のセルは2行以上に折り返し（切れず）」と同じ。判断39）。カードは横にはみ出さない。
+  await page.setViewportSize({ width: 260, height: 720 })
+  const longNameCard = holdingRow(page, LONG_NAME_CODE)
+  const wrapped = await longNameCard.evaluate((card, longName) => {
+    const nameElement = Array.from(card.querySelectorAll('*')).find(
+      (element) => element.children.length === 0 && element.textContent === longName,
+    )
+    if (nameElement === undefined) throw new Error('長い銘柄名の要素が見つからない')
+    const range = document.createRange()
+    range.selectNodeContents(nameElement)
+    const lineTops = new Set(Array.from(range.getClientRects()).map((rect) => Math.round(rect.top)))
+    return {
+      lines: lineTops.size,
+      nameClipped: nameElement.scrollWidth > nameElement.clientWidth,
+      cardClipped: card.scrollWidth > card.clientWidth,
+    }
+  }, LONG_NAME)
+  expect(wrapped.lines, '幅 260px の長い銘柄名の行数').toBeGreaterThanOrEqual(2)
+  expect(wrapped.nameClipped, '幅 260px の長い銘柄名が切れている').toBe(false)
+  expect(wrapped.cardClipped, '幅 260px の長い銘柄名のカードが横にはみ出している').toBe(false)
 })
 
 test('補助 要件2・判断21（キーボードだけで確認のダイアログを開く）: 「⋯」にフォーカスして Enter でメニューを開き、「削除」で Enter を押すと、確認のダイアログが開く（フォーカスは「キャンセル」）', async ({ page }) => {
@@ -1182,11 +1244,12 @@ test('補助 判断37・判断22（ステップ6 3ラウンド目の優先度1�
   await expect(dialog).toHaveCount(0)
   await expect(operationButton(page, 'トヨタ自動車')).toBeFocused()
   await expectToyotaRowMerged(page)
-  await expect(page.locator('tbody tr')).toHaveCount(3)
+  await expect(holdingCards(page)).toHaveCount(3)
 })
 
-test('補助 判断41（ステップ6 3ラウンド目のテストの網羅の指摘3）: 幅 375px で表の領域を横にスクロールして「⋯」の右側が画面の外に出る位置にし、見えている部分を押しても、メニューは横にも画面の中（左端が0以上、右端が375以下）に出る', async ({ page }) => {
-  // Given: 7203・6758 を保有（価格あり。8列の表が狭い画面の幅を超え、表の領域が横にスクロールする）。
+test('補助 判断41（ステップ6 3ラウンド目のテストの網羅の指摘3）: 幅 375px で、カードの右上の「⋯」を押しても、メニューは横にも画面の中（左端が0以上、右端が375以下）に出る', async ({ page }) => {
+  // Given: 7203・6758 を保有（価格あり）。元は表の領域を横にスクロールして「⋯」を画面の端に寄せたが、表の横スクロールはなくなった。
+  //   カードでは「⋯」がカードの右上（画面の右端の近く）にあるので、押して、メニューが画面の中に出ることだけを確かめる（メニューの位置の決まりは MenuButton のまま）。
   await insertHoldingsData({
     trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50],
     prices: [TOYOTA_PRICE, SONY_PRICE],
@@ -1194,28 +1257,15 @@ test('補助 判断41（ステップ6 3ラウンド目のテストの網羅の�
   const VIEWPORT_WIDTH = 375
   await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 667 })
   await page.goto(HOLDINGS_PATH)
-  const region = page.getByRole('region', { name: PAGE_TITLE, exact: true })
   const button = operationButton(page, 'トヨタ自動車')
-  await expect(button).toBeAttached()
-
-  // 表の領域を横にスクロールして、「⋯」の左の6pxだけが領域（と画面）の右端の内側に見える位置にする。
-  // このとき「⋯」の右側は画面の外に出る。
-  const regionBox = await region.boundingBox()
-  if (regionBox === null) throw new Error('表の横スクロールの領域の位置を取れない')
-  const regionRight = regionBox.x + regionBox.width
-  const before = await button.boundingBox()
-  if (before === null) throw new Error('「⋯」の位置を取れない')
-  const VISIBLE_PART_PX = 6
-  await region.evaluate((element, delta) => {
-    element.scrollLeft += delta
-  }, before.x - (regionRight - VISIBLE_PART_PX))
+  await expect(button).toBeVisible()
   const box = await button.boundingBox()
   if (box === null) throw new Error('「⋯」の位置を取れない')
-  expect(box.x + box.width, 'スクロール後の「⋯」の右端（画面の外に出ている）').toBeGreaterThan(VIEWPORT_WIDTH)
-  expect(box.x, 'スクロール後の「⋯」の左端（見えている）').toBeLessThan(regionRight)
+  // 「⋯」は画面の中にあり、画面の右半分にある（カードの右上）。
+  expect(box.x + box.width, '「⋯」の右端').toBeLessThanOrEqual(VIEWPORT_WIDTH)
+  expect(box.x, '「⋯」の左端').toBeGreaterThan(VIEWPORT_WIDTH / 2)
 
-  // 見えている部分を押す。
-  await page.mouse.click(box.x + VISIBLE_PART_PX / 2, box.y + box.height / 2)
+  await button.click()
 
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()

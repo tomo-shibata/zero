@@ -93,9 +93,11 @@ func TestPR1_4_3_API_計算がint64に収まらない売買履歴なら500とint
 			"holdings": [
 				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 				 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-				 "priceDate": "2026-10-06", "valuation": "300000"}
+				 "priceDate": "2026-10-06", "valuation": "300000",
+				 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 			],
-			"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
+			"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
+			            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
 		}`)
 	})
 }

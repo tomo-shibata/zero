@@ -29,10 +29,10 @@
   font-size: 1.75rem;
 }
 
-/* 0件のときのメッセージ。合計の領域（HoldingsTotal.css）と同じカードの見た目にする（PR④ ステップ6 の D-8）。 */
+/* 0件のときのメッセージ。合計の欄（HoldingsSummary.css）と同じカードの見た目にする（PR④ ステップ6 の D-8）。 */
 .holdings-page__empty {
   margin: 0;
-  padding: 1.5rem 2rem;
+  padding: 1.5rem 1.25rem;
   background: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);

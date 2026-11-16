@@ -18,12 +18,15 @@ const (
 	// yenUnitPriceDecimals・usdDecimals は、単価の文字列の小数の桁数（円は 0.1円まで、ドルは 0.01ドルまで）。
 	yenUnitPriceDecimals = 1
 	usdDecimals          = 2
+	// rateDecimals は、含み損益の率の文字列の小数の桁数（0.1% まで）。
+	rateDecimals = 1
 )
 
 // 値そのものは資産の額なので、エラー（ログに出る）には入れない。
 var (
 	errYenUnitPriceNotTenth = errors.New("円の単価が 0.1円で割り切れません")
 	errYenValuationNotWhole = errors.New("円の評価額が1円で割り切れません")
+	errYenGainNotWhole      = errors.New("円の含み損益が1円で割り切れません")
 )
 
 // holdingsResponse は、GET /api/holdings の本文（売買履歴のプラン 4.3「一覧の API の形」）。
@@ -32,26 +35,33 @@ type holdingsResponse struct {
 	Totals   []currencyTotalResponse `json:"totals"`
 }
 
-// holdingResponse は、一覧の1行。価格のない行は currentPrice・priceDate・valuation を null にする。
-// 金額（単価・評価額）は文字列にする。JSON の数にすると、受け取る側（JavaScript）が浮動小数点に変換して、誤差が入るおそれがあるため
+// holdingResponse は、一覧の1行。価格のない行は currentPrice・priceDate・valuation・unrealizedGain・unrealizedGainRate を null にする。
+// 金額（単価・評価額・含み損益）は文字列にする。JSON の数にすると、受け取る側（JavaScript）が浮動小数点に変換して、誤差が入るおそれがあるため
 // （売買履歴のプラン 6章の判断7）。単価は円が小数1桁（"2500.0"）・ドルが小数2桁（"150.25"）、
-// 評価額は円が整数（"450000"）・ドルが小数2桁（"1800.00"）。
+// 評価額は円が整数（"450000"）・ドルが小数2桁（"1800.00"）、
+// 含み損益は円が符号付きの整数（"-501"）・ドルが符号付きの小数2桁（"-0.01"）、率は符号付きの小数1桁（"-12.5"）
+// （カード表示のプラン 4.2。プラスに "+" は付けない）。
 type holdingResponse struct {
-	Code             string  `json:"code"`
-	Name             string  `json:"name"`
-	Currency         string  `json:"currency"`
-	Quantity         int64   `json:"quantity"`
-	AcquisitionPrice string  `json:"acquisitionPrice"`
-	CurrentPrice     *string `json:"currentPrice"`
-	PriceDate        *string `json:"priceDate"`
-	Valuation        *string `json:"valuation"`
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+	Currency           string  `json:"currency"`
+	Quantity           int64   `json:"quantity"`
+	AcquisitionPrice   string  `json:"acquisitionPrice"`
+	CurrentPrice       *string `json:"currentPrice"`
+	PriceDate          *string `json:"priceDate"`
+	Valuation          *string `json:"valuation"`
+	UnrealizedGain     *string `json:"unrealizedGain"`
+	UnrealizedGainRate *string `json:"unrealizedGainRate"`
 }
 
-// currencyTotalResponse は、1つの通貨の合計評価額。valuation の形は一覧の行の評価額と同じ。
+// currencyTotalResponse は、1つの通貨の合計評価額と含み損益の合計。valuation・unrealizedGain・unrealizedGainRate の形は一覧の行と同じ。
+// 価格のある銘柄がない通貨は、unrealizedGain・unrealizedGainRate を null にする。
 type currencyTotalResponse struct {
-	Currency         string `json:"currency"`
-	Valuation        string `json:"valuation"`
-	ExcludesUnpriced bool   `json:"excludesUnpriced"`
+	Currency           string  `json:"currency"`
+	Valuation          string  `json:"valuation"`
+	ExcludesUnpriced   bool    `json:"excludesUnpriced"`
+	UnrealizedGain     *string `json:"unrealizedGain"`
+	UnrealizedGainRate *string `json:"unrealizedGainRate"`
 }
 
 // newHoldingsResponse は、一覧の Read Model を API の本文の形にする。
@@ -74,10 +84,16 @@ func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
 		if err != nil {
 			return holdingsResponse{}, fmt.Errorf("%s の合計評価額: %w", t.Currency, err)
 		}
+		gain, rate, err := formatGainAndRate(t.Currency, t.UnrealizedGainHundredths, t.UnrealizedGainRateTenths)
+		if err != nil {
+			return holdingsResponse{}, fmt.Errorf("%s の含み損益の合計: %w", t.Currency, err)
+		}
 		totals = append(totals, currencyTotalResponse{
-			Currency:         string(t.Currency),
-			Valuation:        valuation,
-			ExcludesUnpriced: t.ExcludesUnpriced,
+			Currency:           string(t.Currency),
+			Valuation:          valuation,
+			ExcludesUnpriced:   t.ExcludesUnpriced,
+			UnrealizedGain:     gain,
+			UnrealizedGainRate: rate,
 		})
 	}
 	return holdingsResponse{Holdings: holdings, Totals: totals}, nil
@@ -111,7 +127,26 @@ func newHoldingResponse(h dto.Holding) (holdingResponse, error) {
 		}
 		row.Valuation = &valuation
 	}
+	gain, rate, err := formatGainAndRate(h.Currency, h.UnrealizedGainHundredths, h.UnrealizedGainRateTenths)
+	if err != nil {
+		return holdingResponse{}, fmt.Errorf("銘柄 %q の含み損益: %w", h.Code, err)
+	}
+	row.UnrealizedGain, row.UnrealizedGainRate = gain, rate
 	return row, nil
+}
+
+// formatGainAndRate は、含み損益 gain（0.01 単位）と率 rate（0.1% 単位）を、API の文字列にする。
+// どちらも nil（価格がない）なら、どちらも nil を返す。
+func formatGainAndRate(currency dto.Currency, gain, rate *int64) (gainText, rateText *string, err error) {
+	if gain == nil || rate == nil {
+		return nil, nil, nil
+	}
+	g, err := formatUnrealizedGain(currency, *gain)
+	if err != nil {
+		return nil, nil, err
+	}
+	r := formatGainRate(*rate)
+	return &g, &r, nil
 }
 
 // formatUnitPrice は、0.01 単位の単価を、通貨の単価の形の文字列にする。
@@ -147,6 +182,29 @@ func formatValuation(currency dto.Currency, hundredths int64) (string, error) {
 	default:
 		return "", fmt.Errorf("知らない通貨 %q です", currency)
 	}
+}
+
+// formatUnrealizedGain は、0.01 単位の含み損益を、通貨の含み損益の形の文字列にする（カード表示のプラン 4.2）。
+// 円は符号付きの整数（例: -50100 → "-501"。表示する含み損益は1円未満を四捨五入した値なので100の倍数。そうでなければエラー）、
+// ドルは符号付きで小数第2位を必ず2桁付ける（例: -1 → "-0.01"）。プラスに "+" は付けない（符号は画面が付ける）。
+func formatUnrealizedGain(currency dto.Currency, hundredths int64) (string, error) {
+	switch currency {
+	case dto.CurrencyJPY:
+		if hundredths%yenValuationStepHundredths != 0 {
+			return "", errYenGainNotWhole
+		}
+		return strconv.FormatInt(hundredths/yenValuationStepHundredths, 10), nil
+	case dto.CurrencyUSD:
+		return formatDecimal(hundredths, usdDecimals), nil
+	default:
+		return "", fmt.Errorf("知らない通貨 %q です", currency)
+	}
+}
+
+// formatGainRate は、0.1% 単位の率を、符号付きの小数1桁の文字列にする（例: -125 → "-12.5"、-5 → "-0.5"、0 → "0.0"）。
+// 0 は符号なしの "0.0" になる（"-0.0" は出ない）。
+func formatGainRate(tenths int64) string {
+	return formatDecimal(tenths, rateDecimals)
 }
 
 // formatDecimal は、整数 units を、末尾から decimals 桁を小数部にした文字列にする（例: units 25000・decimals 1 → "2500.0"、5・1 → "0.5"、5・2 → "0.05"）。

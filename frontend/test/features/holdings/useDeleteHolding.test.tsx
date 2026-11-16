@@ -18,14 +18,14 @@ import { useHoldings } from '../../../src/features/holdings/hooks/useHoldings'
 
 const TWO_HOLDINGS_BODY = {
   holdings: [
-    { code: '6758', name: 'ソニーグループ', currency: 'JPY', quantity: 50, acquisitionPrice: '3200.0', currentPrice: null, priceDate: null, valuation: null },
-    { code: '7203', name: 'トヨタ自動車', currency: 'JPY', quantity: 400, acquisitionPrice: '2750.0', currentPrice: null, priceDate: null, valuation: null },
+    { code: '6758', name: 'ソニーグループ', currency: 'JPY', quantity: 50, acquisitionPrice: '3200.0', currentPrice: null, priceDate: null, valuation: null, unrealizedGain: null, unrealizedGainRate: null },
+    { code: '7203', name: 'トヨタ自動車', currency: 'JPY', quantity: 400, acquisitionPrice: '2750.0', currentPrice: null, priceDate: null, valuation: null, unrealizedGain: null, unrealizedGainRate: null },
   ],
-  totals: [{ currency: 'JPY', valuation: '0', excludesUnpriced: true }],
+  totals: [{ currency: 'JPY', valuation: '0', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null }],
 }
 const ONE_HOLDING_BODY = {
   holdings: [TWO_HOLDINGS_BODY.holdings[0]],
-  totals: [{ currency: 'JPY', valuation: '0', excludesUnpriced: true }],
+  totals: [{ currency: 'JPY', valuation: '0', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null }],
 }
 
 const TIMEOUT_MS = 10_000

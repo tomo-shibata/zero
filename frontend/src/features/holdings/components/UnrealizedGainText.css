@@ -1,0 +1,32 @@
+/* 含み損益と率。文字の大きさは、置く場所（カード・合計の欄）が --unrealized-gain-size で決める。 */
+.unrealized-gain {
+  margin: 0;
+  font-size: var(--unrealized-gain-size, 1.5rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  /* 「取得できません」など、2つに分けない文言も、置く場所の幅からはみ出さずに折り返す。 */
+  overflow-wrap: anywhere;
+}
+
+/*
+ * 金額と率はそれぞれ1かたまりにして、狭い幅の改行を2つの間だけにする（「ドル」の「ド」と「ル」の間などで割れない）。
+ * inline-block にして、1つが幅に入りきらない長い値のときだけ、中で折り返す（overflow-wrap）。
+ */
+.unrealized-gain__part {
+  display: inline-block;
+  overflow-wrap: anywhere;
+  /*
+   * 率が2行目に回ったとき、行頭の全角の「（」の左の空きで右に下がって見えないよう、行頭の括弧だけを詰める。
+   * 対応しないブラウザでは無視されるだけ（今のまま）。
+   */
+  text-spacing-trim: trim-start;
+}
+
+/* 色は data-tone で決める。even（0 と取得できないとき）は赤・青を付けず、まわりの文字の色のまま。 */
+.unrealized-gain[data-tone='gain'] {
+  color: var(--color-gain);
+}
+
+.unrealized-gain[data-tone='loss'] {
+  color: var(--color-loss);
+}

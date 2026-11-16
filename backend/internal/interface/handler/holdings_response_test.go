@@ -90,6 +90,60 @@ func TestFormatValuation(t *testing.T) {
 	})
 }
 
+// 仕様: カード表示の要件 docs/requirements/holdings-cards.md の基準13（要件10）と、
+// プラン docs/plans/holdings-cards/plan.md 4.2「API の形」・4.6（PR① の境界）・5.1（基準13）・5.3（PR① の handler の補助のテスト）。
+
+// 基準13（要件10）の handler の部分・補助: 0.01 単位の含み損益を API の文字列にする。
+// 円は符号付きの整数（100の倍数でなければエラー）、ドルは符号付きの小数2桁（整数部が0の負の値は "-0.01"）。プラスに "+" は付けない。
+func TestFormatUnrealizedGain(t *testing.T) {
+	runFormatCases(t, formatUnrealizedGain, []formatCase{
+		{name: "円 -501円は-501", currency: dto.CurrencyJPY, hundredth: -50100, want: "-501"},
+		{name: "円 50000円は50000", currency: dto.CurrencyJPY, hundredth: 5000000, want: "50000"},
+		{name: "円 0円は0", currency: dto.CurrencyJPY, hundredth: 0, want: "0"},
+		{name: "円 1円は1（プラスに+を付けない）", currency: dto.CurrencyJPY, hundredth: 100, want: "1"},
+		{name: "円 -1円は-1", currency: dto.CurrencyJPY, hundredth: -100, want: "-1"},
+		{name: "円 1234567円は1234567", currency: dto.CurrencyJPY, hundredth: 123456700, want: "1234567"},
+		{name: "ドル -0.01ドルは-0.01（整数部が0の負の値）", currency: dto.CurrencyUSD, hundredth: -1, want: "-0.01"},
+		{name: "ドル -159.99ドルは-159.99", currency: dto.CurrencyUSD, hundredth: -15999, want: "-159.99"},
+		{name: "ドル 0ドルは0.00", currency: dto.CurrencyUSD, hundredth: 0, want: "0.00"},
+		{name: "ドル 297.50ドルは297.50", currency: dto.CurrencyUSD, hundredth: 29750, want: "297.50"},
+		{name: "ドル 0.01ドルは0.01", currency: dto.CurrencyUSD, hundredth: 1, want: "0.01"},
+		// 円で100の倍数でない値は、切り捨てずにエラー。
+		{name: "円 0.5円（50）はエラー", currency: dto.CurrencyJPY, hundredth: 50, wantErr: true},
+		{name: "円 -0.5円（-50）はエラー", currency: dto.CurrencyJPY, hundredth: -50, wantErr: true},
+		{name: "円 1.01円（101）はエラー", currency: dto.CurrencyJPY, hundredth: 101, wantErr: true},
+		// 知らない通貨は、どの値でもエラー。
+		{name: "知らない通貨はエラー", currency: dto.Currency("EUR"), hundredth: 100, wantErr: true},
+		{name: "通貨が空はエラー", currency: dto.Currency(""), hundredth: 100, wantErr: true},
+	})
+}
+
+// 基準13（要件10）の handler の部分・補助: 0.1% 単位の率を、符号付きの小数1桁の文字列にする（整数部が0の負の値は "-0.5"）。
+func TestFormatGainRate(t *testing.T) {
+	tests := []struct {
+		name   string
+		tenths int64
+		want   string
+	}{
+		{name: "-5は-0.5", tenths: -5, want: "-0.5"},
+		{name: "-125は-12.5", tenths: -125, want: "-12.5"},
+		{name: "0は0.0", tenths: 0, want: "0.0"},
+		{name: "749は74.9", tenths: 749, want: "74.9"},
+		{name: "200は20.0", tenths: 200, want: "20.0"},
+		{name: "1は0.1", tenths: 1, want: "0.1"},
+		{name: "-1は-0.1", tenths: -1, want: "-0.1"},
+		{name: "1235は123.5", tenths: 1235, want: "123.5"},
+		{name: "-71は-7.1", tenths: -71, want: "-7.1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatGainRate(tc.tenths); got != tc.want {
+				t.Errorf("formatGainRate(%d) = %q, want %q", tc.tenths, got, tc.want)
+			}
+		})
+	}
+}
+
 // formatDecimal は、整数の10進の文字列の途中に小数点を入れる（浮動小数点を通さない）。
 func TestFormatDecimal(t *testing.T) {
 	tests := []struct {

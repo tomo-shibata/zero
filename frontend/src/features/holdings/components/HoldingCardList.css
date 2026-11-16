@@ -1,0 +1,26 @@
+/*
+ * カードの並び。列の数は画面の幅で変える（カード表示のプラン 判断7）。
+ *   幅 600px 未満: 1列、600px 以上 900px 未満: 2列、900px 以上: 3列。
+ * 幅 1,280px で3列、幅 390px で1列になり（要件1）、間の幅でも文字がカードからはみ出さない。
+ * minmax(0, 1fr) にして、長い銘柄名や大きな値が列を押し広げて、ページを横にスクロールさせないようにする。
+ */
+.holding-card-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 600px) {
+  .holding-card-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 900px) {
+  .holding-card-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

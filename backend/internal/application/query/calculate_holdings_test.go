@@ -2,6 +2,8 @@ package query_test
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -140,11 +142,60 @@ func assertQuantityAndAcquisition(t *testing.T, h dto.Holding, wantQuantity, wan
 	}
 }
 
-// assertTotals は、list.Totals が want（この並び・この長さ）と同じであることを確かめる。
+// assertTotals は、list.Totals が want（この並び・この長さ）と同じであることを、含み損益と率（ポインタ）も値で比べて確かめる
+// （slices.Equal はポインタをアドレスで比べるので使わない。含み損益・率を比べから外さない。カード表示のプラン 5.2）。
 func assertTotals(t *testing.T, list dto.HoldingsList, want []dto.CurrencyTotal) {
 	t.Helper()
-	if !slices.Equal(list.Totals, want) {
-		t.Errorf("Totals:\n got %+v\nwant %+v", list.Totals, want)
+	if !reflect.DeepEqual(list.Totals, want) {
+		t.Errorf("Totals:\n got %s\nwant %s", formatTotals(list.Totals), formatTotals(want))
+	}
+}
+
+// formatTotals は、失敗のメッセージ用に、合計の含み損益と率（ポインタ）を値で読める形にする。
+func formatTotals(totals []dto.CurrencyTotal) string {
+	s := "["
+	for _, tt := range totals {
+		s += fmt.Sprintf("{%s 評価額:%d 注記:%v 含み損益:%s 率:%s} ", tt.Currency, tt.ValuationHundredths, tt.ExcludesUnpriced,
+			formatOptional(tt.UnrealizedGainHundredths), formatOptional(tt.UnrealizedGainRateTenths))
+	}
+	return s + "]"
+}
+
+// formatOptional は、ポインタの整数を、nil なら "nil"、そうでなければ値の文字列にする。
+func formatOptional(p *int64) string {
+	if p == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%d", *p)
+}
+
+// assertGain は、h の含み損益（0.01 単位）と率（0.1% 単位）が want と同じであることを確かめる。
+func assertGain(t *testing.T, h dto.Holding, wantGainHundredths, wantRateTenths int64) {
+	t.Helper()
+	if h.UnrealizedGainHundredths == nil {
+		t.Errorf("%s の含み損益: got nil, want %d", h.Code, wantGainHundredths)
+	} else if *h.UnrealizedGainHundredths != wantGainHundredths {
+		t.Errorf("%s の含み損益（0.01 単位）: got %d, want %d", h.Code, *h.UnrealizedGainHundredths, wantGainHundredths)
+	}
+	if h.UnrealizedGainRateTenths == nil {
+		t.Errorf("%s の率: got nil, want %d", h.Code, wantRateTenths)
+	} else if *h.UnrealizedGainRateTenths != wantRateTenths {
+		t.Errorf("%s の率（0.1%% 単位）: got %d, want %d", h.Code, *h.UnrealizedGainRateTenths, wantRateTenths)
+	}
+}
+
+// jpyTotal・usdTotal は、通貨の合計（評価額・注記のフラグ・含み損益と率）を作る。含み損益と率は、価格のある銘柄がなければ nil。
+func jpyTotal(valuation int64, excludes bool, gain, rate *int64) dto.CurrencyTotal {
+	return dto.CurrencyTotal{
+		Currency: dto.CurrencyJPY, ValuationHundredths: valuation, ExcludesUnpriced: excludes,
+		UnrealizedGainHundredths: gain, UnrealizedGainRateTenths: rate,
+	}
+}
+
+func usdTotal(valuation int64, excludes bool, gain, rate *int64) dto.CurrencyTotal {
+	return dto.CurrencyTotal{
+		Currency: dto.CurrencyUSD, ValuationHundredths: valuation, ExcludesUnpriced: excludes,
+		UnrealizedGainHundredths: gain, UnrealizedGainRateTenths: rate,
 	}
 }
 
@@ -268,8 +319,9 @@ func Test基準12_保有が円だけなら合計は円の1件だけになる(t *
 
 	list := calculate(t, rows)
 
+	// 取得価格 2,500円×100株 = 250,000円、評価額 300,000円 → 含み損益 +50,000円（5000000）・率 20.0%（200）
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 30000000, ExcludesUnpriced: false},
+		jpyTotal(30000000, false, ptr[int64](5000000), ptr[int64](200)),
 	})
 }
 
@@ -307,9 +359,10 @@ func Test補助_合計は通貨ごとに円ドルの順で出し価格がそろ�
 
 	list := calculate(t, rows)
 
+	// 円: +50,000円・20.0%。ドル: 取得額 1,502.50ドル（150.25×10）・評価額 1,800.00ドル → +297.50ドル（29750）・19.8%（198）
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 30000000, ExcludesUnpriced: false},
-		{Currency: dto.CurrencyUSD, ValuationHundredths: 180000, ExcludesUnpriced: false},
+		jpyTotal(30000000, false, ptr[int64](5000000), ptr[int64](200)),
+		usdTotal(180000, false, ptr[int64](29750), ptr[int64](198)),
 	})
 }
 
@@ -324,9 +377,10 @@ func Test補助_価格のない銘柄がある通貨だけ注記のフラグが�
 
 	list := calculate(t, rows)
 
+	// 円は +50,000円・20.0%。ドルは価格のある銘柄がないので、含み損益も率も nil（要件16）。
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 30000000, ExcludesUnpriced: false},
-		{Currency: dto.CurrencyUSD, ValuationHundredths: 0, ExcludesUnpriced: true},
+		jpyTotal(30000000, false, ptr[int64](5000000), ptr[int64](200)),
+		usdTotal(0, true, nil, nil),
 	})
 }
 
@@ -350,8 +404,9 @@ func Test補助_売り切った銘柄は合計の通貨にも価格なしの注�
 	if h.ValuationHundredths == nil || *h.ValuationHundredths != 3500000 {
 		t.Errorf("6758 の評価額: got %v, want 3500000（10株 × 3,500円 = 35,000円）", h.ValuationHundredths)
 	}
+	// 6758: 取得額 32,000円（3,200円×10株）・評価額 35,000円 → +3,000円（300000）・9.375% を四捨五入して 9.4%（94）
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 3500000, ExcludesUnpriced: false},
+		jpyTotal(3500000, false, ptr[int64](300000), ptr[int64](94)),
 	})
 }
 
@@ -368,7 +423,7 @@ func Test補助_保有がドルだけなら合計はドルの1件だけになる
 		t.Errorf("AAPL の現在の価格: got %v, want 18000（180.00ドル）", h.CurrentPriceHundredths)
 	}
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyUSD, ValuationHundredths: 180000, ExcludesUnpriced: false},
+		usdTotal(180000, false, ptr[int64](29750), ptr[int64](198)),
 	})
 }
 
@@ -383,8 +438,9 @@ func Test補助_ドルの評価額は切り捨てずそのままの値になる(
 	if h.ValuationHundredths == nil || *h.ValuationHundredths != 54075 {
 		t.Errorf("AAPL の評価額: got %v, want 54075（3株 × 180.25ドル = 540.75ドル）", h.ValuationHundredths)
 	}
+	// 取得額 450.75ドル（150.25×3）・評価額 540.75ドル → +90.00ドル（9000）・19.967…% を四捨五入して 20.0%（200）
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyUSD, ValuationHundredths: 54075, ExcludesUnpriced: false},
+		usdTotal(54075, false, ptr[int64](9000), ptr[int64](200)),
 	})
 }
 
@@ -506,8 +562,9 @@ func TestFR6_FR9_TC12_合計評価額は行ごとに切り捨てた評価額の�
 
 	list := calculate(t, rows)
 
+	// 1行ごと: 取得額 2,000円・評価額 1,234円 → -766円。2行の合計: -1,532円（-153200）・-1,532÷4,000 = -38.3%（-383）
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 246800, ExcludesUnpriced: false},
+		jpyTotal(246800, false, ptr[int64](-153200), ptr[int64](-383)),
 	})
 }
 
@@ -599,7 +656,7 @@ func Test補助_売り切った銘柄は一覧に出さず合計評価額にも�
 		t.Errorf("6758 の評価額: got %v, want 3500000（10株 × 3,500円）", h.ValuationHundredths)
 	}
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 3500000, ExcludesUnpriced: false},
+		jpyTotal(3500000, false, ptr[int64](300000), ptr[int64](94)),
 	})
 }
 
@@ -636,8 +693,9 @@ func Test補助_価格のない銘柄は合計評価額に入れず注記のフ�
 	if got, want := codes(list), []string{toyotaCode, sbgCode}; !slices.Equal(got, want) {
 		t.Fatalf("銘柄コード: got %v, want %v", got, want)
 	}
+	// 含み損益と率は、価格のある 7203 だけで計算する（9984 は入れない）。+50,000円・20.0%。
 	assertTotals(t, list, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 30000000, ExcludesUnpriced: true},
+		jpyTotal(30000000, true, ptr[int64](5000000), ptr[int64](200)),
 	})
 	noPrice := list.Holdings[1]
 	if noPrice.CurrentPriceHundredths != nil || noPrice.PriceDate != nil || noPrice.ValuationHundredths != nil {
@@ -797,8 +855,9 @@ func Test補助_int64にぎりぎり収まる値ならエラーにならない(t
 		if h.ValuationHundredths == nil || *h.ValuationHundredths != 9223372036854775807 {
 			t.Errorf("評価額: got %v, want 9223372036854775807", h.ValuationHundredths)
 		}
+		// 取得額（0.01ドル × 最大の株数）と評価額が同じなので、含み損益は 0・率も 0。
 		assertTotals(t, list, []dto.CurrencyTotal{
-			{Currency: dto.CurrencyUSD, ValuationHundredths: 9223372036854775807, ExcludesUnpriced: false},
+			usdTotal(9223372036854775807, false, ptr[int64](0), ptr[int64](0)),
 		})
 	})
 }

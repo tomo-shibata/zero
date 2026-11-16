@@ -1,0 +1,88 @@
+.holdings-summary {
+  padding: 1.5rem 1.25rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  /* 含み損益の文字は、合計の欄の中でいちばん大きくする（見出し h2 の 1.25rem より大きい。要件14）。 */
+  --unrealized-gain-size: 1.75rem;
+}
+
+.holdings-summary__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+/* 通貨ごとの部分の並び。幅 900px 未満は縦に積み、900px 以上は横に2列に並べる（下の @media）。 */
+.holdings-summary__currencies {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 1.5rem;
+}
+
+.holdings-summary__currency {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.holdings-summary__currency-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.holdings-summary__details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+  margin: 0.5rem 0 0;
+}
+
+.holdings-summary__term {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* 見出し（dt）の次の値（dd）。含み損益の後ろの評価額の見出しとの間を少し空ける。 */
+.holdings-summary__gain {
+  margin: 0 0 0.5rem;
+}
+
+.holdings-summary__valuation {
+  margin: 0;
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.holdings-summary__note {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/*
+ * 幅 600px 以上: 各通貨の「見出しと値」を同じ行に並べる（画面のイメージ）。
+ * 幅 600px 未満は、縦積みのまま（狭い幅で大きな値が見出しと横に並ぶと折り返しが増えるため）。
+ */
+@media (min-width: 600px) {
+  .holdings-summary__details {
+    grid-template-columns: auto minmax(0, 1fr);
+    /* 見出しの上端を値の上端にそろえる（baseline だと、大きな値より見出しが下にずれて、見出しが値の下に来る）。 */
+    align-items: start;
+    gap: 0.5rem 1rem;
+  }
+
+  .holdings-summary__gain {
+    margin: 0;
+  }
+}
+
+/*
+ * 幅 900px 以上（カードが3列になる幅）: 円とドルを横に2列に並べる（1,280px×720px でもカードが最初の画面に入るように）。
+ * 900px 未満で横に並べると、1つの通貨の列が約 256px まで狭くなり、大きな含み損益が金額の途中で割れるため、縦に積む。
+ */
+@media (min-width: 900px) {
+  .holdings-summary__currencies {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

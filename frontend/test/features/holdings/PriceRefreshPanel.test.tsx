@@ -28,9 +28,11 @@ const HOLDINGS_BODY = {
       currentPrice: '3000.0',
       priceDate: '2026-10-06',
       valuation: '300000',
+      unrealizedGain: '50000',
+      unrealizedGainRate: '20.0',
     },
   ],
-  totals: [{ currency: 'JPY', valuation: '300000', excludesUnpriced: false }],
+  totals: [{ currency: 'JPY', valuation: '300000', excludesUnpriced: false, unrealizedGain: '50000', unrealizedGainRate: '20.0' }],
 }
 
 const REFRESH_BUTTON = '価格を今すぐ更新'

@@ -144,9 +144,11 @@ func TestAC1_API_価格のある銘柄の行を単価は小数第1位付きの�
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"}
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
-		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
 	}`)
 }
 
@@ -168,12 +170,15 @@ func TestAC7_AC8a_API_全銘柄に価格があれば合計評価額は評価額�
 		"holdings": [
 			{"code": "6758", "name": "ソニーグループ", "currency": "JPY", "quantity": 10,
 			 "acquisitionPrice": "3200.0", "currentPrice": "3500.0",
-			 "priceDate": "2026-10-06", "valuation": "35000"},
+			 "priceDate": "2026-10-06", "valuation": "35000",
+			 "unrealizedGain": "3000", "unrealizedGainRate": "9.4"},
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"}
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
-		"totals": [{"currency": "JPY", "valuation": "335000", "excludesUnpriced": false}]
+		"totals": [{"currency": "JPY", "valuation": "335000", "excludesUnpriced": false,
+		            "unrealizedGain": "53000", "unrealizedGainRate": "18.8"}]
 	}`)
 }
 
@@ -196,12 +201,15 @@ func TestAC8_AC11_API_価格のない銘柄はnullで返し合計評価額に含
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"},
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
 			{"code": "9984", "name": "ソフトバンクグループ", "currency": "JPY", "quantity": 10,
 			 "acquisitionPrice": "9000.0", "currentPrice": null,
-			 "priceDate": null, "valuation": null}
+			 "priceDate": null, "valuation": null,
+			 "unrealizedGain": null, "unrealizedGainRate": null}
 		],
-		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": true}]
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": true,
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
 	}`)
 }
 
@@ -239,9 +247,11 @@ func TestFR8_TC11_PR2_TC08_API_現在の価格は最新の取引日の終値で�
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"}
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
-		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
 	}`)
 }
 
@@ -262,9 +272,11 @@ func TestFR4_FR12_FR19_TC14_API_scaleの違う単価も正しく読んで集約�
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 3,
 			 "acquisitionPrice": "2000.7", "currentPrice": "1234.5",
-			 "priceDate": "2026-10-06", "valuation": "3703"}
+			 "priceDate": "2026-10-06", "valuation": "3703",
+			 "unrealizedGain": "-2299", "unrealizedGainRate": "-38.3"}
 		],
-		"totals": [{"currency": "JPY", "valuation": "3703", "excludesUnpriced": false}]
+		"totals": [{"currency": "JPY", "valuation": "3703", "excludesUnpriced": false,
+		            "unrealizedGain": "-2299", "unrealizedGainRate": "-38.3"}]
 	}`)
 }
 
@@ -288,9 +300,11 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 			"holdings": [
 				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 1,
 				 "acquisitionPrice": "0.1", "currentPrice": "3000.0",
-				 "priceDate": "2026-10-06", "valuation": "3000"}
+				 "priceDate": "2026-10-06", "valuation": "3000",
+				 "unrealizedGain": "3000", "unrealizedGainRate": "2999900.0"}
 			],
-			"totals": [{"currency": "JPY", "valuation": "3000", "excludesUnpriced": false}]
+			"totals": [{"currency": "JPY", "valuation": "3000", "excludesUnpriced": false,
+			            "unrealizedGain": "3000", "unrealizedGainRate": "2999900.0"}]
 		}`)
 	})
 
@@ -308,9 +322,11 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 			"holdings": [
 				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 1,
 				 "acquisitionPrice": "2001.0", "currentPrice": "1234.5",
-				 "priceDate": "2026-10-06", "valuation": "1234"}
+				 "priceDate": "2026-10-06", "valuation": "1234",
+				 "unrealizedGain": "-767", "unrealizedGainRate": "-38.3"}
 			],
-			"totals": [{"currency": "JPY", "valuation": "1234", "excludesUnpriced": false}]
+			"totals": [{"currency": "JPY", "valuation": "1234", "excludesUnpriced": false,
+			            "unrealizedGain": "-767", "unrealizedGainRate": "-38.3"}]
 		}`)
 	})
 }
@@ -423,9 +439,11 @@ func Test基準9_API_ドルの銘柄の行は通貨USDで単価と評価額を�
 		"holdings": [
 			{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 10,
 			 "acquisitionPrice": "150.25", "currentPrice": "180.00",
-			 "priceDate": "2026-10-06", "valuation": "1800.00"}
+			 "priceDate": "2026-10-06", "valuation": "1800.00",
+			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
 		],
-		"totals": [{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false}]
+		"totals": [{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false,
+		            "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}]
 	}`)
 }
 
@@ -447,14 +465,18 @@ func Test基準10_API_合計は通貨ごとに円ドルの順で返す(t *testin
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"},
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
 			{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 10,
 			 "acquisitionPrice": "150.25", "currentPrice": "180.00",
-			 "priceDate": "2026-10-06", "valuation": "1800.00"}
+			 "priceDate": "2026-10-06", "valuation": "1800.00",
+			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
 		],
 		"totals": [
-			{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false},
-			{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false}
+			{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
+			{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false,
+			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
 		]
 	}`)
 }
@@ -475,14 +497,18 @@ func Test基準11_API_ドルの銘柄がすべて価格なしならドルの合�
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"},
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
 			{"code": "MSFT", "name": "Microsoft", "currency": "USD", "quantity": 5,
 			 "acquisitionPrice": "400.00", "currentPrice": null,
-			 "priceDate": null, "valuation": null}
+			 "priceDate": null, "valuation": null,
+			 "unrealizedGain": null, "unrealizedGainRate": null}
 		],
 		"totals": [
-			{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false},
-			{"currency": "USD", "valuation": "0.00", "excludesUnpriced": true}
+			{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
+			{"currency": "USD", "valuation": "0.00", "excludesUnpriced": true,
+			 "unrealizedGain": null, "unrealizedGainRate": null}
 		]
 	}`)
 }
@@ -505,9 +531,11 @@ func Test補助_API_ドルの評価額は切り捨てずに小数2桁の文字�
 			"holdings": [
 				{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 3,
 				 "acquisitionPrice": "150.25", "currentPrice": "180.25",
-				 "priceDate": "2026-10-06", "valuation": "540.75"}
+				 "priceDate": "2026-10-06", "valuation": "540.75",
+				 "unrealizedGain": "90.00", "unrealizedGainRate": "20.0"}
 			],
-			"totals": [{"currency": "USD", "valuation": "540.75", "excludesUnpriced": false}]
+			"totals": [{"currency": "USD", "valuation": "540.75", "excludesUnpriced": false,
+			            "unrealizedGain": "90.00", "unrealizedGainRate": "20.0"}]
 		}`)
 	})
 
@@ -524,9 +552,11 @@ func Test補助_API_ドルの評価額は切り捨てずに小数2桁の文字�
 			"holdings": [
 				{"code": "AAPL", "name": "Apple", "currency": "USD", "quantity": 1,
 				 "acquisitionPrice": "0.01", "currentPrice": "0.01",
-				 "priceDate": "2026-10-06", "valuation": "0.01"}
+				 "priceDate": "2026-10-06", "valuation": "0.01",
+				 "unrealizedGain": "0.00", "unrealizedGainRate": "0.0"}
 			],
-			"totals": [{"currency": "USD", "valuation": "0.01", "excludesUnpriced": false}]
+			"totals": [{"currency": "USD", "valuation": "0.01", "excludesUnpriced": false,
+			            "unrealizedGain": "0.00", "unrealizedGainRate": "0.0"}]
 		}`)
 	})
 }
@@ -560,9 +590,11 @@ func Test補助_API_円の終値が0_1円より細かいと500とinternal_error�
 			"holdings": [
 				{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 				 "acquisitionPrice": "2500.0", "currentPrice": "3000.2",
-				 "priceDate": "2026-10-06", "valuation": "300020"}
+				 "priceDate": "2026-10-06", "valuation": "300020",
+				 "unrealizedGain": "50020", "unrealizedGainRate": "20.0"}
 			],
-			"totals": [{"currency": "JPY", "valuation": "300020", "excludesUnpriced": false}]
+			"totals": [{"currency": "JPY", "valuation": "300020", "excludesUnpriced": false,
+			            "unrealizedGain": "50020", "unrealizedGainRate": "20.0"}]
 		}`)
 	})
 }
@@ -584,8 +616,10 @@ func Test補助_API_売り切ったドルの銘柄はtotalsにも出ない(t *te
 		"holdings": [
 			{"code": "7203", "name": "トヨタ自動車", "currency": "JPY", "quantity": 100,
 			 "acquisitionPrice": "2500.0", "currentPrice": "3000.0",
-			 "priceDate": "2026-10-06", "valuation": "300000"}
+			 "priceDate": "2026-10-06", "valuation": "300000",
+			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
-		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false}]
+		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
 	}`)
 }

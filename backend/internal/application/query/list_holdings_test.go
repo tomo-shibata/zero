@@ -56,8 +56,9 @@ func Test補助_Executeは読み取りの売買履歴から一覧を作り利用
 	if h.ValuationHundredths == nil || *h.ValuationHundredths != 45000000 {
 		t.Errorf("評価額（0.01 単位）: got %v, want 45000000（150株 × 3,000円 = 450,000円）", h.ValuationHundredths)
 	}
+	// 取得額 375,000円（2,500円×150株）・評価額 450,000円 → +75,000円（7500000）・20.0%（200）
 	assertTotals(t, got, []dto.CurrencyTotal{
-		{Currency: dto.CurrencyJPY, ValuationHundredths: 45000000, ExcludesUnpriced: false},
+		jpyTotal(45000000, false, ptr[int64](7500000), ptr[int64](200)),
 	})
 	if len(reader.gotUsers) != 1 || reader.gotUsers[0] != userA {
 		t.Errorf("読み取りに渡された利用者 ID: got %v, want [%s]", reader.gotUsers, userA)

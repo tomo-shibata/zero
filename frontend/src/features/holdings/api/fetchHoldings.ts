@@ -4,6 +4,8 @@ import {
   CURRENCIES,
   type Currency,
   UNIT_PRICE_PATTERNS,
+  UNREALIZED_GAIN_PATTERNS,
+  UNREALIZED_GAIN_RATE_PATTERN,
   VALUATION_PATTERNS,
 } from '../../../shared/lib/currency'
 
@@ -43,6 +45,18 @@ function checkAmountFormat(
   }
 }
 
+/** 含み損益と率の文字列が、通貨に合う形かを確かめる（含み損益は UNREALIZED_GAIN_PATTERNS、率は UNREALIZED_GAIN_RATE_PATTERN）。 */
+function checkGainFormat(context: z.RefinementCtx, currency: Currency, gain: string, rate: string): void {
+  checkAmountFormat(context, UNREALIZED_GAIN_PATTERNS, currency, gain, 'unrealizedGain')
+  if (!UNREALIZED_GAIN_RATE_PATTERN.test(rate)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'unrealizedGainRate の形が正しくありません',
+      path: ['unrealizedGainRate'],
+    })
+  }
+}
+
 const holdingBaseSchema = z.object({
   code: z.string(),
   name: z.string(),
@@ -57,33 +71,53 @@ const pricedHoldingSchema = holdingBaseSchema
     currentPrice: z.string(),
     priceDate: z.iso.date(),
     valuation: z.string(),
+    unrealizedGain: z.string(),
+    unrealizedGainRate: z.string(),
   })
   .superRefine((row, context) => {
     checkAmountFormat(context, UNIT_PRICE_PATTERNS, row.currency, row.acquisitionPrice, 'acquisitionPrice')
     checkAmountFormat(context, UNIT_PRICE_PATTERNS, row.currency, row.currentPrice, 'currentPrice')
     checkAmountFormat(context, VALUATION_PATTERNS, row.currency, row.valuation, 'valuation')
+    checkGainFormat(context, row.currency, row.unrealizedGain, row.unrealizedGainRate)
   })
 
-/** 価格のない行。現在の価格・価格の基準日・評価額がそろって null。 */
+/** 価格のない行。現在の価格・価格の基準日・評価額・含み損益・率がそろって null。 */
 const unpricedHoldingSchema = holdingBaseSchema
   .extend({
     currentPrice: z.null(),
     priceDate: z.null(),
     valuation: z.null(),
+    unrealizedGain: z.null(),
+    unrealizedGainRate: z.null(),
   })
   .superRefine((row, context) => {
     checkAmountFormat(context, UNIT_PRICE_PATTERNS, row.currency, row.acquisitionPrice, 'acquisitionPrice')
   })
 
-/** 通貨ごとの合計評価額。valuation の形は、その通貨の評価額と同じ。 */
+/**
+ * 通貨ごとの合計評価額と含み損益の合計。valuation の形は、その通貨の評価額と同じ。
+ * 含み損益と率は、両方とも null（その通貨に価格のある銘柄がない）か、両方とも文字列（その通貨の含み損益の形）。片方だけ null は reject する。
+ */
 const currencyTotalSchema = z
   .object({
     currency: currencySchema,
     valuation: z.string(),
     excludesUnpriced: z.boolean(),
+    unrealizedGain: z.string().nullable(),
+    unrealizedGainRate: z.string().nullable(),
   })
   .superRefine((total, context) => {
     checkAmountFormat(context, VALUATION_PATTERNS, total.currency, total.valuation, 'valuation')
+    const { unrealizedGain: gain, unrealizedGainRate: rate } = total
+    if (gain !== null && rate !== null) {
+      checkGainFormat(context, total.currency, gain, rate)
+    } else if (gain !== null || rate !== null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'unrealizedGain と unrealizedGainRate は、両方とも null か両方とも文字列でなければなりません',
+        path: ['unrealizedGainRate'],
+      })
+    }
   })
 
 const holdingsListSchema = z.object({
