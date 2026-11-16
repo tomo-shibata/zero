@@ -9,14 +9,14 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/domain/repository"
 )
 
-// RefreshPrices は、ログイン中の利用者が保有する銘柄の終値を、今すぐ取得して保存するユースケース（要件16）。
+// RefreshPrices は、ログイン中の利用者の保有数量が1以上の銘柄の終値を、今すぐ取得して保存するユースケース（要件16）。
 // 取得と保存は、定時実行と同じ FetchClosingPrices を使う（非機能2、値段の更新のプラン 6章の判断8）。
 type RefreshPrices struct {
 	fetch *FetchClosingPrices
 	held  repository.HeldStockRepository
 }
 
-// NewRefreshPrices は、利用者の保有銘柄を held から読み、その終値を fetch で取得して保存する RefreshPrices を返す。
+// NewRefreshPrices は、利用者の保有数量が1以上の銘柄を held から読み、その終値を fetch で取得して保存する RefreshPrices を返す。
 func NewRefreshPrices(fetch *FetchClosingPrices, held repository.HeldStockRepository) *RefreshPrices {
 	return &RefreshPrices{fetch: fetch, held: held}
 }

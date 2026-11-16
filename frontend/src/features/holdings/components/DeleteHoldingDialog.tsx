@@ -18,8 +18,8 @@ type DeleteHoldingDialogProps = {
 }
 
 /**
- * 銘柄の削除の確認のダイアログ（要件13〜15）。
- * 「削除する」を押すと、その銘柄の保有データをすべて削除し、一覧の取り直しが終わるか10秒たつまで待ってから閉じる（取り直しが返らなくても出られるように。判断37）。
+ * 銘柄の削除の確認のダイアログ（値段の更新の要件13〜15、売買履歴の要件18）。
+ * 「削除する」を押すと、その銘柄の売買履歴をすべて削除し、一覧の取り直しが終わるか10秒たつまで待ってから閉じる（取り直しが返らなくても出られるように。判断37）。
  * 失敗したら開いたまま「削除できませんでした」を出し、押し直せる。一覧は変えない。
  */
 export function DeleteHoldingDialog({ code, name, onClose }: DeleteHoldingDialogProps) {
@@ -27,7 +27,7 @@ export function DeleteHoldingDialog({ code, name, onClose }: DeleteHoldingDialog
 
   return (
     <ConfirmDialog
-      message={`${code} ${name}を削除しますか？この銘柄の保有データはすべて削除されます。`}
+      message={`${code} ${name}を削除しますか？この銘柄の売買履歴はすべて削除されます。`}
       confirmLabel={CONFIRM_LABEL}
       pending={deletion.isPending}
       error={deletion.isError ? ERROR_MESSAGE : undefined}

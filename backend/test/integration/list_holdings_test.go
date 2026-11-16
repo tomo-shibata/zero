@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tomo-shibata/zero/backend/internal/application/query"
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
@@ -12,37 +13,136 @@ import (
 	"github.com/tomo-shibata/zero/backend/test/testdb"
 )
 
-// 仕様: 要件（docs/requirements/stock-holdings.md）の AC-2（FR-1、FR-17）と、
-// プラン（docs/plans/stock-holdings/plan.md）5.1 の AC-2 の行
-// （A に 7203、B に 6758 を保有させる。ListHoldings.Execute(A) の結果が 7203 の1行だけ）。
-// 組み立ては 4.4 の read.NewHoldingsReader → query.NewListHoldings。
+// 仕様: 要件（docs/requirements/trade-history.md）の基準6（要件10・要件12）・基準8（要件4）と、
+// プラン（docs/plans/trade-history/plan.md）5.1 の基準6・基準8 の行（PR①）、5.5 の「基準6」「基準8 の補助」。
+// 組み立ては 4.6 の境界のとおり: read.NewHoldingsReader(pool)（ListTradeRows）→ query.NewListHoldings → Execute。
+// 売買履歴は SQL の INSERT で入れる（insertTrade・insertBuy）。
+// 元の保有株式一覧の AC-2（他の利用者の保有が含まれない）は、基準8 のテストで兼ねる（5.2）。
 
-// AC-2（FR-1、FR-17）: 利用者Bが 6758 を保有し、利用者Aは 6758 を保有していない
-// → 利用者Aの保有株式一覧に 6758 は含まれない（A の一覧は 7203 の1行だけ）。
-func TestAC2_利用者Aの保有株式一覧に利用者Bの保有株式は含まれない(t *testing.T) {
+// listHoldingsOf は、pool の DB で、利用者 userID の一覧を取得する。取得できなければテストを止める。
+func listHoldingsOf(t *testing.T, pool *pgxpool.Pool, userID string) dto.HoldingsList {
+	t.Helper()
+	got, err := query.NewListHoldings(read.NewHoldingsReader(pool)).Execute(t.Context(), uuid.MustParse(userID))
+	if err != nil {
+		t.Fatalf("利用者 %s の一覧を取得できない: %v", userID, err)
+	}
+	return got
+}
+
+// 基準6（要件10・要件12）: Aの売買履歴が、7203「買 2,000円 100株 2026-01-10」「売 2,500円 100株 2026-02-10」と、
+// 6758「買 3,200円 10株 2026-01-10」→ Aの一覧は 6758 の1行だけで、合計評価額は 35,000円（売り切った 7203 は一覧にも合計にも入らない）。
+// 6758 の価格（3,500円・2026-10-06）は保存済み。売り切った 7203 の価格は入れない（5.5: 価格のない売り切りの銘柄が
+// 「価格を取得できない銘柄を含みません」を出さないことも確かめる。TotalExcludesUnpriced が false）。
+// 円の行だけの合計は、PR② で `totals` に直す（PR① では TotalValuation）。
+func Test基準6_売り切った銘柄は一覧に出さず合計評価額に含めない(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
-	insertHolding(t, pool, seedUserB, "6758", 10, "3200")
-	q := query.NewListHoldings(read.NewHoldingsReader(pool))
+	insertTrade(t, pool, seedUserA, "7203", "buy", 100, "2000", "2026-01-10")
+	insertTrade(t, pool, seedUserA, "7203", "sell", 100, "2500", "2026-02-10")
+	insertTrade(t, pool, seedUserA, "6758", "buy", 10, "3200", "2026-01-10")
+	insertClosePrice(t, pool, "6758", "2026-10-06", "3500")
 
-	got, err := q.Execute(t.Context(), uuid.MustParse(seedUserA))
-	if err != nil {
-		t.Fatalf("利用者Aの一覧を取得できない: %v", err)
+	got := listHoldingsOf(t, pool, seedUserA)
+
+	if codes := holdingCodes(got.Holdings); !slices.Equal(codes, []string{"6758"}) {
+		t.Fatalf("Aの一覧の銘柄コード: got %v, want [6758]（売り切った 7203 は出さない）", codes)
 	}
+	h := got.Holdings[0]
+	if h.Quantity != 10 {
+		t.Errorf("6758 の保有数量: got %d, want 10", h.Quantity)
+	}
+	if h.Valuation == nil || *h.Valuation != 35000 {
+		t.Errorf("6758 の評価額: got %v, want 35000", h.Valuation)
+	}
+	if got.TotalValuation != 35000 {
+		t.Errorf("合計評価額: got %d, want 35000", got.TotalValuation)
+	}
+	if got.TotalExcludesUnpriced {
+		t.Error("TotalExcludesUnpriced: got true, want false（価格のない 7203 は売り切っていて、注記の対象にならない）")
+	}
+}
+
+// 基準8（要件4）: Aが 7203「買 2,500円 100株 2026-01-10」、Bが 6758「買 3,200円 10株 2026-01-10」で持つ
+// → Aの一覧は 7203 の1行だけで、6758 は含まれない（保有数量と取得価格は、ログイン中の利用者の売買履歴から計算する）。
+// 対照: 同じ DB でBの一覧には 6758 が出る（6758 がAの一覧にないのは、利用者で絞っているからであって、6758 の行が読めないからではない）。
+func Test基準8_AC2_利用者Aの一覧に利用者Bの売買履歴は含まれない(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserB, "6758", 10, "3200")
+
+	got := listHoldingsOf(t, pool, seedUserA)
 	if codes := holdingCodes(got.Holdings); !slices.Equal(codes, []string{"7203"}) {
 		t.Errorf("利用者Aの一覧の銘柄コード: got %v, want [7203]（利用者Bの 6758 を含めない）", codes)
 	}
 
-	// 対照: 同じ DB で利用者Bの一覧には 6758 が出る（6758 が A の一覧にないのは、
-	// 利用者で絞っているからであって、6758 の行が読めないからではないことを確かめる）。
-	gotB, err := q.Execute(t.Context(), uuid.MustParse(seedUserB))
-	if err != nil {
-		t.Fatalf("利用者Bの一覧を取得できない: %v", err)
-	}
+	gotB := listHoldingsOf(t, pool, seedUserB)
 	if codes := holdingCodes(gotB.Holdings); !slices.Equal(codes, []string{"6758"}) {
 		t.Errorf("利用者Bの一覧の銘柄コード: got %v, want [6758]", codes)
 	}
+}
+
+// 基準8 の補助（5.5）: AとBが同じ 7203 を持つとき、Aの保有数量・取得価格はAの売買履歴の分だけ
+// （Aが 100株・2,500円、Bが 30株・3,000円 → Aは 100株・2,500円。Bの分を足すと 130株・2,615.4円 になって誤り）。
+// Bの一覧は 30株・3,000円。
+func Test基準8補助_同じ銘柄を持つ利用者の保有数量と取得価格は自分の売買履歴の分だけになる(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserB, "7203", 30, "3000")
+
+	gotA := listHoldingsOf(t, pool, seedUserA)
+	hA := onlyHoldingOf(t, gotA.Holdings, "7203")
+	if hA.Quantity != 100 || hA.AcquisitionPriceTenths != 25000 {
+		t.Errorf("Aの 7203: got %d株・%d（0.1円単位）, want 100株・25000（2,500円）", hA.Quantity, hA.AcquisitionPriceTenths)
+	}
+
+	gotB := listHoldingsOf(t, pool, seedUserB)
+	hB := onlyHoldingOf(t, gotB.Holdings, "7203")
+	if hB.Quantity != 30 || hB.AcquisitionPriceTenths != 30000 {
+		t.Errorf("Bの 7203: got %d株・%d（0.1円単位）, want 30株・30000（3,000円）", hB.Quantity, hB.AcquisitionPriceTenths)
+	}
+}
+
+// insertTradeWithID は、trades.id を id に指定して、利用者 userID の売買履歴1件を入れる（id は登録した順。要件8）。
+// DB から読むときに id を渡し忘れると、同じ取引日の並びが入れた順になることを見分けるため、入れる順と id の順を変えるのに使う。
+func insertTradeWithID(t *testing.T, pool *pgxpool.Pool, id int64, userID, stockCode, side string, quantity int64, price, tradeDate string) {
+	t.Helper()
+	if _, err := pool.Exec(t.Context(),
+		"INSERT INTO trades (id, user_id, stock_code, side, quantity, price, trade_date) VALUES ($1::bigint, $2::uuid, $3::text, $4::text, $5::bigint, $6::text::numeric, $7::text::date)",
+		id, userID, stockCode, side, quantity, price, tradeDate,
+	); err != nil {
+		t.Fatalf("売買履歴（id %d・利用者 %s・%s・%s・%d株・%s円・%s）を入れられない: %v", id, userID, stockCode, side, quantity, price, tradeDate, err)
+	}
+}
+
+// 基準4（要件8）の統合: 単体（calculate_holdings_test.go の基準4）と同じ4件の売買履歴を、id を指定して id が 3 → 2 → 1 → 4 の順に入れる
+// （id 1「買 2,000円 100株 2026-03-02」、id 2「売 2,000円 100株 2026-03-02」、id 3「買 3,000円 100株 2026-03-02」、id 4「買 1,000円 10株 2026-03-01」）
+// → Aの一覧の 7203 は 110株・2,900.8円（Tenths で 29008）。
+// 同じ取引日の順は DB に入れた順ではなく id の順（登録した順）で決まる。読み取りが id を渡し忘れると、入れた順（3 → 2 → 1）にたどって別の値になる。
+func Test基準4_同じ取引日の売買履歴はDBに入れた順ではなくidの順にたどる(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	insertTradeWithID(t, pool, 3, seedUserA, "7203", "buy", 100, "3000", "2026-03-02")
+	insertTradeWithID(t, pool, 2, seedUserA, "7203", "sell", 100, "2000", "2026-03-02")
+	insertTradeWithID(t, pool, 1, seedUserA, "7203", "buy", 100, "2000", "2026-03-02")
+	insertTradeWithID(t, pool, 4, seedUserA, "7203", "buy", 10, "1000", "2026-03-01")
+
+	got := listHoldingsOf(t, pool, seedUserA)
+
+	h := onlyHoldingOf(t, got.Holdings, "7203")
+	if h.Quantity != 110 || h.AcquisitionPriceTenths != 29008 {
+		t.Errorf("Aの 7203: got %d株・%d（0.1円単位）, want 110株・29008（2,900.8円）", h.Quantity, h.AcquisitionPriceTenths)
+	}
+}
+
+// onlyHoldingOf は、holdings がちょうど1行で、その銘柄コードが code であることを確かめて、その行を返す。
+func onlyHoldingOf(t *testing.T, holdings []dto.Holding, code string) dto.Holding {
+	t.Helper()
+	if codes := holdingCodes(holdings); !slices.Equal(codes, []string{code}) {
+		t.Fatalf("一覧の銘柄コード: got %v, want [%s]", codes, code)
+	}
+	return holdings[0]
 }
 
 // holdingCodes は、一覧の行の銘柄コードを並び順のまま返す。

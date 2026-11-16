@@ -4,9 +4,9 @@ package repository
 
 import "context"
 
-// HoldingRepository は、保有データを扱う。
+// HoldingRepository は、保有している銘柄を読む（売買履歴から求める。保有数量が1以上の銘柄）。
 type HoldingRepository interface {
-	// ListHeldStockCodes は、全利用者の保有データにある銘柄コードを、重複なし・昇順（Go の文字列比較）で返す。
-	// 価格の取得処理が、どの銘柄の終値を取得するかを決めるために使う（要件 FR-15「保有されている全銘柄」）。
+	// ListHeldStockCodes は、誰かの保有数量が1以上の銘柄コードを、重複なし・昇順（Go の文字列比較）で返す。売り切った銘柄は含めない。
+	// 価格の取得処理が、どの銘柄の終値を取得するかを決めるために使う（要件16）。
 	ListHeldStockCodes(ctx context.Context) ([]string, error)
 }

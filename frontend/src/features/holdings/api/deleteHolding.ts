@@ -11,10 +11,10 @@ const NO_CONTENT = 204
 const DELETE_TIMEOUT_MS = 10_000
 
 /**
- * ログイン中の利用者の、銘柄 code の保有データをすべて削除する（要件14）。
+ * ログイン中の利用者の、銘柄 code の売買履歴をすべて削除する（売買履歴の要件18）。
  * 銘柄コードは encodeURIComponent してパスに入れる（"/" などを含んでも、別のパスにならないように）。
  * 204 以外の応答（保有していない銘柄の 404 を含む）、通信の失敗、10秒たっても応答がないときは reject する
- * （画面は削除の失敗として扱う。要件15）。
+ * （画面は削除の失敗として扱う。値段の更新の要件15）。
  */
 export async function deleteHolding(code: string): Promise<void> {
   const controller = new AbortController()

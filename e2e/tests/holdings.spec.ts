@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   insertHoldingsData,
   resetHoldingsData,
-  type HoldingSeed,
+  type TradeSeed,
   type StockPriceSeed,
 } from '../fixtures/db'
 
@@ -20,7 +20,7 @@ test.describe.configure({ mode: 'default' })
 const BROWSER_TIMEZONE = 'America/Los_Angeles'
 test.use({ timezoneId: BROWSER_TIMEZONE })
 
-// 各テストの前に、保有データ・終値と test.sql にない銘柄マスタを消す（プラン 4.5）。
+// 各テストの前に、売買履歴・終値と test.sql にない銘柄マスタを消す（プラン 4.5）。
 // そのテストのデータは、各テストの中で画面を開く前に入れる。
 test.beforeEach(async () => {
   await resetHoldingsData()
@@ -37,6 +37,7 @@ const TOTAL_LABEL = '合計評価額'
 const UNPRICED_NOTE = '価格を取得できない銘柄を含みません'
 const EMPTY_MESSAGE = '保有株式はありません'
 const UNAVAILABLE = '取得できません'
+const REFRESH_BUTTON = '価格を今すぐ更新'
 const LOADING_LABEL = '読み込み中'
 const FETCH_ERROR_MESSAGE = '保有株式の取得に失敗しました'
 const CLOSE_BUTTON = '閉じる'
@@ -57,16 +58,19 @@ const COLUMN_HEADERS = [
 
 // ---- テストデータ（要件「成功基準」の銘柄マスタとダミー価格） ----
 // 価格はダミーの取得元を通さず、「保存済み」の状態として DB に直接入れる。
+// 保有は売買履歴（買い）で作る（docs/requirements/trade-history.md。docs/plans/trade-history/plan.md 5章）。
+// 買いの取引日は、どれも今日（2026-11-16）より前の 2026-01-10 にする。
+const BUY_DATE = '2026-01-10'
 /** AC-1: 7203 を100株、取得価格2,500円。 */
-const TOYOTA_100: HoldingSeed = { code: '7203', quantity: 100, acquisitionPrice: '2500.0' }
+const TOYOTA_100: TradeSeed = { code: '7203', side: 'buy', quantity: 100, price: '2500.0', tradeDate: BUY_DATE }
 /** 7203 の保存済みの終値（3,000円・2026-10-06）。 */
 const TOYOTA_PRICE: StockPriceSeed = { code: '7203', tradingDate: '2026-10-06', closePrice: '3000.0' }
 /** AC-7: 6758 を10株（取得価格は AC にないので任意の値）。 */
-const SONY_10: HoldingSeed = { code: '6758', quantity: 10, acquisitionPrice: '3200.0' }
+const SONY_10: TradeSeed = { code: '6758', side: 'buy', quantity: 10, price: '3200.0', tradeDate: BUY_DATE }
 /** 6758 の保存済みの終値（3,500円・2026-10-06）。 */
 const SONY_PRICE: StockPriceSeed = { code: '6758', tradingDate: '2026-10-06', closePrice: '3500.0' }
 /** 9984 を50株（数量・取得価格は AC にないので任意の値）。9984 の価格は入れない（一度も保存されていない）。 */
-const SOFTBANK_50: HoldingSeed = { code: '9984', quantity: 50, acquisitionPrice: '4500.0' }
+const SOFTBANK_50: TradeSeed = { code: '9984', side: 'buy', quantity: 50, price: '4500.0', tradeDate: BUY_DATE }
 
 /** AC-1: 7203 の行の7つのセル（要件 AC-1 の値そのまま）。 */
 const TOYOTA_ROW = ['7203', 'トヨタ自動車', '100株', '2,500円', '3,000円', '2026-10-06', '300,000円']
@@ -148,7 +152,7 @@ async function expectFetchErrorDialogAndNothingAfterClose(page: Page): Promise<v
 
 test('AC-1・補助 FR-14（TC-25）: 7203 の行に「7203 / トヨタ自動車 / 100株 / 2,500円 / 3,000円 / 2026-10-06 / 300,000円」が表示される（America/Los_Angeles でも日付が変わらない）', async ({ page }) => {
   // Given: 利用者Aが 7203 を100株、取得価格2,500円で保有し、7203 の価格（3,000円・2026-10-06）が保存済み。
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
 
   await page.goto(HOLDINGS_PATH)
 
@@ -177,7 +181,7 @@ test('AC-3: ダッシュボードでリンク「保有株式一覧」を押す�
 test('AC-7: 7203 を100株、6758 を10株保有し、両方の価格が保存済みのとき、合計評価額に 335,000円 が表示される', async ({ page }) => {
   // Given: 7203（100株 × 3,000円）と 6758（10株 × 3,500円）。合計 300,000円 + 35,000円 = 335,000円。
   await insertHoldingsData({
-    holdings: [TOYOTA_100, SONY_10],
+    trades: [TOYOTA_100, SONY_10],
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
 
@@ -192,7 +196,7 @@ test('AC-7: 7203 を100株、6758 を10株保有し、両方の価格が保存�
 test('AC-8: 7203（価格あり）と 9984（価格なし）を保有しているとき、合計評価額に 300,000円 と「価格を取得できない銘柄を含みません」が表示される', async ({ page }) => {
   // Given: 7203 を100株（価格保存済み）、9984（価格未保存）。
   await insertHoldingsData({
-    holdings: [TOYOTA_100, SOFTBANK_50],
+    trades: [TOYOTA_100, SOFTBANK_50],
     prices: [TOYOTA_PRICE],
   })
 
@@ -207,7 +211,7 @@ test('AC-8: 7203（価格あり）と 9984（価格なし）を保有してい�
 test('AC-8a: 全銘柄の価格が保存済みのとき、「価格を取得できない銘柄を含みません」は表示されない', async ({ page }) => {
   // Given: AC-7 と同じ。
   await insertHoldingsData({
-    holdings: [TOYOTA_100, SONY_10],
+    trades: [TOYOTA_100, SONY_10],
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
 
@@ -219,7 +223,7 @@ test('AC-8a: 全銘柄の価格が保存済みのとき、「価格を取得で�
 })
 
 test('AC-9: 1件も保有していないとき、「保有株式はありません」が表示され、合計評価額は表示されない', async ({ page }) => {
-  // Given: 利用者Aの保有データなし（beforeEach で消したまま）。
+  // Given: 利用者Aの売買履歴なし（beforeEach で消したまま）。
 
   await page.goto(HOLDINGS_PATH)
 
@@ -231,9 +235,58 @@ test('AC-9: 1件も保有していないとき、「保有株式はありませ�
   await expect(holdingsTable(page)).toHaveCount(0)
 })
 
+test('基準7（要件10）: 7203 を買って売り切っただけのとき、「保有株式はありません」が表示され、合計評価額・「価格を今すぐ更新」・「⋯」は表示されない', async ({ page }) => {
+  // Given: 利用者Aの売買履歴が 7203「買 2,000円 100株 2026-01-10」「売 2,500円 100株 2026-02-10」だけ（保有数量が0）。
+  await insertHoldingsData({
+    trades: [
+      { code: '7203', side: 'buy', quantity: 100, price: '2000.0', tradeDate: '2026-01-10' },
+      { code: '7203', side: 'sell', quantity: 100, price: '2500.0', tradeDate: '2026-02-10' },
+    ],
+  })
+
+  await page.goto(HOLDINGS_PATH)
+
+  // 先に空のメッセージが出る（取得が終わった）のを待ってから、ないことを確かめる（プラン 4.5）。
+  await expect(page.getByText(EMPTY_MESSAGE)).toBeVisible()
+  await expect(totalRegion(page)).toHaveCount(0)
+  await expect(page.getByText(TOTAL_LABEL)).toHaveCount(0)
+  await expect(holdingsTable(page)).toHaveCount(0)
+  // 値段の更新の要件1: 保有のない一覧には「価格を今すぐ更新」も「⋯」も出さない（網羅の指摘23）。
+  await expect(page.getByRole('button', { name: REFRESH_BUTTON, exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /の操作$/ })).toHaveCount(0)
+  await expect(page.getByText('⋯')).toHaveCount(0)
+})
+
+test('補助（基準4 の画面。プラン 5.3）: 売買履歴を「買 2,000円 100株 3/2」「売 2,000円 100株 3/2」「買 3,000円 100株 3/2」「買 1,000円 10株 3/1」の順に入れると、7203 の行は 110株・取得価格 2,900.8円になる（取引日の古い順、同じ日は入れた順にたどる）', async ({ page }) => {
+  // Given: 基準4 と同じ売買履歴を、この順に入れる（E2E の db.ts が配列の順に登録する。プラン 4.7）。
+  //   取引日の古い 2026-03-01 の買いが先で 10株・1,000円。2026-03-02 は入れた順に、買いで 110株・1,909.09…円、売りで 10株、買いで 110株・2,900.82…円。
+  //   同じ日を買いから先にたどる誤りなら 2,428.6円 になる。終値は 3,000円・2026-10-06（評価額 110株 × 3,000円 = 330,000円）。
+  await insertHoldingsData({
+    trades: [
+      { code: '7203', side: 'buy', quantity: 100, price: '2000.0', tradeDate: '2026-03-02' },
+      { code: '7203', side: 'sell', quantity: 100, price: '2000.0', tradeDate: '2026-03-02' },
+      { code: '7203', side: 'buy', quantity: 100, price: '3000.0', tradeDate: '2026-03-02' },
+      { code: '7203', side: 'buy', quantity: 10, price: '1000.0', tradeDate: '2026-03-01' },
+    ],
+    prices: [TOYOTA_PRICE],
+  })
+
+  await page.goto(HOLDINGS_PATH)
+
+  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+    '7203',
+    'トヨタ自動車',
+    '110株',
+    '2,900.8円',
+    '3,000円',
+    '2026-10-06',
+    '330,000円',
+  ])
+})
+
 test('AC-9b: 一覧の API が HTTP 500 を返すとき、「保有株式の取得に失敗しました」のダイアログが表示され、「閉じる」を押すと閉じて一覧と合計評価額は表示されない', async ({ page }) => {
-  // DB には保有データを入れておく（API が成功すれば一覧が出るデータにして、「表示されない」が空のデータのせいでないようにする）。
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  // DB には売買履歴を入れておく（API が成功すれば一覧が出るデータにして、「表示されない」が空のデータのせいでないようにする）。
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   // Given: 一覧の API がエラー（HTTP 500。本文はプラン 4.4「API」の失敗時の形）を返す。
   await page.route(HOLDINGS_API, (route) =>
     route.fulfill({
@@ -251,7 +304,7 @@ test('AC-9b: 一覧の API が HTTP 500 を返すとき、「保有株式の取�
 test('AC-11: 9984 の価格が一度も保存されていないとき、9984 の行の現在の価格・価格の基準日・評価額は「取得できません」で、7203 の行は AC-1 のとおり表示される', async ({ page }) => {
   // Given: 7203（100株・2,500円、価格保存済み）と 9984（50株・4,500円、価格は一度も保存されていない）。
   await insertHoldingsData({
-    holdings: [TOYOTA_100, SOFTBANK_50],
+    trades: [TOYOTA_100, SOFTBANK_50],
     prices: [TOYOTA_PRICE],
   })
 
@@ -278,7 +331,7 @@ test('AC-18・補助 NFR-3（PR4_TC04）: 100銘柄（すべて価格が保存�
   const codes = Array.from({ length: 100 }, (_, i) => String(1001 + i))
   await insertHoldingsData({
     stocks: codes.map((code) => ({ code, name: `E2E銘柄${code}` })),
-    holdings: codes.map((code) => ({ code, quantity: 100, acquisitionPrice: '2500.0' })),
+    trades: codes.map((code) => ({ code, side: 'buy', quantity: 100, price: '2500.0', tradeDate: BUY_DATE })),
     prices: codes.map((code) => ({ code, tradingDate: '2026-10-06', closePrice: '3000.0' })),
   })
 
@@ -317,7 +370,7 @@ test('AC-18・補助 NFR-3（PR4_TC04）: 100銘柄（すべて価格が保存�
 
 test('補助 FR-6（TC-13）: 価格のない 9984 だけを保有しているとき、合計評価額に 0円 と「価格を取得できない銘柄を含みません」が表示される', async ({ page }) => {
   // Given: すべての行に価格がない（プラン 4.4「合計の領域」: 0円 と注記を出す）。
-  await insertHoldingsData({ holdings: [SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SOFTBANK_50] })
 
   await page.goto(HOLDINGS_PATH)
 
@@ -327,7 +380,7 @@ test('補助 FR-6（TC-13）: 価格のない 9984 だけを保有している�
 })
 
 test('補助 FR-22（TC-15）: 一覧の API への通信が失敗したとき、AC-9b と同じダイアログが表示され、閉じた後は一覧と合計評価額は表示されない', async ({ page }) => {
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   // Given: 一覧の API への通信がエラーになる（応答が返らない）。
   await page.route(HOLDINGS_API, (route) => route.abort())
 
@@ -337,7 +390,7 @@ test('補助 FR-22（TC-15）: 一覧の API への通信が失敗したとき�
 })
 
 test('補助 FR-21（SR-15、TC-32）: 一度表示した後にダッシュボードから開き直すと、キャッシュを出さずに「読み込み中」から始まる', async ({ page }) => {
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
 
   // 1回目: ダッシュボードからリンクで /holdings を開き、表が出るのを待つ。
   await page.goto(DASHBOARD_PATH)
@@ -373,10 +426,10 @@ test('補助 FR-21（SR-15、TC-32）: 一度表示した後にダッシュボ�
   await expect(loadingStatus(page)).toHaveCount(0)
 })
 
-test('補助 FR-5（PR4_TC03）: 9984・7203・6758 の順に保有データを入れても、表は銘柄コードの昇順（6758、7203、9984）で表示される', async ({ page }) => {
-  // Given: 保有データを 9984 → 7203 → 6758 の順に入れる（入れた順が昇順と逆になるようにする）。
+test('補助 FR-5（PR4_TC03）: 9984・7203・6758 の順に売買履歴を入れても、表は銘柄コードの昇順（6758、7203、9984）で表示される', async ({ page }) => {
+  // Given: 売買履歴を 9984 → 7203 → 6758 の順に入れる（入れた順が昇順と逆になるようにする）。
   // 価格はどの銘柄にも入れない（価格の有無で並びが変わる誤りと見分けがつかなくならないよう、条件をそろえる）。
-  await insertHoldingsData({ holdings: [SOFTBANK_50, TOYOTA_100, SONY_10] })
+  await insertHoldingsData({ trades: [SOFTBANK_50, TOYOTA_100, SONY_10] })
 
   await page.goto(HOLDINGS_PATH)
 
@@ -387,8 +440,8 @@ test('補助 FR-5（PR4_TC03）: 9984・7203・6758 の順に保有データを�
 })
 
 test('補助 FR-22（PR4_SR1・PR4_EC1）: ブラウザがオフラインと判定しているときにダッシュボードからリンクで開くと、読み込み中のまま止まらずに取得失敗のダイアログが表示される', async ({ page }) => {
-  // DB には保有データを入れておく（「表示されない」が空のデータのせいでないようにする）。
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  // DB には売買履歴を入れておく（「表示されない」が空のデータのせいでないようにする）。
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
 
   // ダッシュボードを開き、画面が出てから（読み込みが終わってから）オフラインにする。
   await page.goto(DASHBOARD_PATH)
@@ -419,8 +472,8 @@ test('補助 FR-22（PR4_SR1・PR4_EC1）: ブラウザがオフラインと判�
 
 /** 一覧の API を HTTP 500（本文はプラン 4.4「API」の失敗時の形）にして /holdings を開き、取得失敗のダイアログが出るのを待つ。 */
 async function openHoldingsWithServerError(page: Page): Promise<Locator> {
-  // DB には保有データを入れておく（「表示されない」が空のデータのせいでないようにする）。
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  // DB には売買履歴を入れておく（「表示されない」が空のデータのせいでないようにする）。
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   await page.route(HOLDINGS_API, (route) =>
     route.fulfill({
       status: 500,

@@ -22,7 +22,7 @@ import (
 func TestFR15_PR3_EC_P2_7_0_1円の端数のある終値はそのままDBに保存される(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
 	src := stubPriceSource{
 		t:      t,
 		prices: map[string]model.ClosingPrice{"7203": mustClosingPrice(t, "7203", "2026-10-06", 12345)},

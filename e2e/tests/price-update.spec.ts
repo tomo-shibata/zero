@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   insertHoldingsData,
   resetHoldingsData,
-  type HoldingSeed,
+  type TradeSeed,
   type StockPriceSeed,
 } from '../fixtures/db'
 
@@ -24,7 +24,7 @@ test.describe.configure({ mode: 'default' })
 const BROWSER_TIMEZONE = 'America/Los_Angeles'
 test.use({ timezoneId: BROWSER_TIMEZONE })
 
-// 各テストの前に、保有データ・終値と test.sql にない銘柄マスタを消す。そのテストのデータは、各テストの中で画面を開く前に入れる。
+// 各テストの前に、売買履歴・終値と test.sql にない銘柄マスタを消す。そのテストのデータは、各テストの中で画面を開く前に入れる。
 test.beforeEach(async () => {
   await resetHoldingsData()
 })
@@ -49,26 +49,29 @@ const DELETE_MENU_ITEM = '削除'
 const DELETE_CONFIRM_BUTTON = '削除する'
 const DELETE_CANCEL_BUTTON = 'キャンセル'
 const DELETE_CONFIRM_MESSAGE =
-  '7203 トヨタ自動車を削除しますか？この銘柄の保有データはすべて削除されます。'
+  '7203 トヨタ自動車を削除しますか？この銘柄の売買履歴はすべて削除されます。'
 const DELETE_ERROR_MESSAGE = '削除できませんでした'
 /** 銘柄の削除の API（プラン 4.4「API」の DELETE /api/holdings/{code}）。 */
 const HOLDING_DELETE_API = '**/api/holdings/*'
 
 // ---- テストデータ（要件定義の成功基準の銘柄マスタとダミー価格） ----
+// 保有は売買履歴（買い）で作る（docs/requirements/trade-history.md。docs/plans/trade-history/plan.md 5章）。
+// 買いの取引日は、どれも今日（2026-11-16）より前の 2026-01-10 にする。
+const BUY_DATE = '2026-01-10'
 /** 7203 を100株、取得価格2,500円（基準25 の「3,000円 / 2026-10-06 / 300,000円」の評価額 300,000円 は100株の値）。 */
-const TOYOTA_100: HoldingSeed = { code: '7203', quantity: 100, acquisitionPrice: '2500.0' }
+const TOYOTA_100: TradeSeed = { code: '7203', side: 'buy', quantity: 100, price: '2500.0', tradeDate: BUY_DATE }
 /** 9984 を50株（数量・取得価格は基準にないので任意の値）。9984 はダミーの取得元に定義がなく、「取得できない」になる。 */
-const SOFTBANK_50: HoldingSeed = { code: '9984', quantity: 50, acquisitionPrice: '4500.0' }
+const SOFTBANK_50: TradeSeed = { code: '9984', side: 'buy', quantity: 50, price: '4500.0', tradeDate: BUY_DATE }
 /** 7203 の1件目（100株・2,000円）。基準21 の「7203 を2件」の1件目。 */
-const TOYOTA_FIRST: HoldingSeed = { code: '7203', quantity: 100, acquisitionPrice: '2000.0' }
+const TOYOTA_FIRST: TradeSeed = { code: '7203', side: 'buy', quantity: 100, price: '2000.0', tradeDate: BUY_DATE }
 /** 7203 の2件目（300株・3,000円）。1件目と合わせて 400株・取得価格 2,750円（(100×2,000＋300×3,000)÷400。基準22 の「400株」）。 */
-const TOYOTA_SECOND: HoldingSeed = { code: '7203', quantity: 300, acquisitionPrice: '3000.0' }
+const TOYOTA_SECOND: TradeSeed = { code: '7203', side: 'buy', quantity: 300, price: '3000.0', tradeDate: BUY_DATE }
 /** 6758 を50株（数量・取得価格は基準にないので任意の値）。価格は入れない。 */
-const SONY_50: HoldingSeed = { code: '6758', quantity: 50, acquisitionPrice: '3200.0' }
+const SONY_50: TradeSeed = { code: '6758', side: 'buy', quantity: 50, price: '3200.0', tradeDate: BUY_DATE }
 /** 6758 の保存済みの終値（3,500円・2026-10-06）。 */
 const SONY_PRICE: StockPriceSeed = { code: '6758', tradingDate: '2026-10-06', closePrice: '3500.0' }
 /** 9984 を100株・取得価格4,500円（要件定義の「画面のイメージ」の 9984 の行。価格は入れない）。 */
-const SOFTBANK_100: HoldingSeed = { code: '9984', quantity: 100, acquisitionPrice: '4500.0' }
+const SOFTBANK_100: TradeSeed = { code: '9984', side: 'buy', quantity: 100, price: '4500.0', tradeDate: BUY_DATE }
 /** 長い銘柄名の銘柄（銘柄マスタに足す。判断39 の折り返しを見分けるため）。 */
 const LONG_NAME_CODE = '8306'
 const LONG_NAME = '三菱ＵＦＪフィナンシャル・グループ'
@@ -166,7 +169,7 @@ function amountPattern(amount: string): RegExp {
 }
 
 test('基準1（要件1）: 保有株式が1件もないとき、「保有株式はありません」が表示され、「価格を今すぐ更新」と「⋯」はどちらも表示されない', async ({ page }) => {
-  // Given: 利用者Aの保有データなし（beforeEach で消したまま）。
+  // Given: 利用者Aの売買履歴なし（beforeEach で消したまま）。
 
   await page.goto(HOLDINGS_PATH)
 
@@ -181,7 +184,7 @@ test('基準1（要件1）: 保有株式が1件もないとき、「保有株式
 
 test('基準25（要件16・要件17・要件18）: 7203 と 9984 を保有し（価格は未保存）、「価格を今すぐ更新」を押すと、7203 の行に「3,000円 / 2026-10-06 / 300,000円」が表示され、「1銘柄の価格を更新しました」と「価格を取得できなかった銘柄: 9984」が表示され、ボタンは押せる状態に戻る', async ({ page }) => {
   // Given: 利用者Aが 7203 と 9984 を保有し、どちらも価格は未保存。
-  await insertHoldingsData({ holdings: [TOYOTA_100, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [TOYOTA_100, SOFTBANK_50] })
 
   await page.goto(HOLDINGS_PATH)
 
@@ -231,7 +234,7 @@ test('基準25（要件16・要件17・要件18）: 7203 と 9984 を保有し�
 
 test('基準30（要件19）: 今すぐ更新の API が HTTP 500 を返すとき、一覧と合計評価額は表示されたまま、「価格の更新に失敗しました」が表示される', async ({ page }) => {
   // 価格の保存済みの 7203 を保有（一覧と合計評価額が出るデータにして、「表示されたまま」を確かめられるようにする）。
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   // Given: 今すぐ更新の API がエラー（HTTP 500。本文は 4.4「API」の失敗時の形）を返す（POST だけ。ほかの要求はそのまま通す）。
   await page.route(PRICE_REFRESH_API, (route) =>
     route.request().method() === 'POST'
@@ -251,7 +254,7 @@ test('基準30（要件19）: 今すぐ更新の API が HTTP 500 を返すと�
 })
 
 test('補助 要件19（基準30 と同じ表示）: 今すぐ更新の API への通信が失敗したとき（abort）、一覧と合計評価額は表示されたまま、「価格の更新に失敗しました」が表示される', async ({ page }) => {
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   // Given: 今すぐ更新の API への通信がエラーになる（応答が返らない）。POST だけ。ほかの要求はそのまま通す。
   await page.route(PRICE_REFRESH_API, (route) =>
     route.request().method() === 'POST' ? route.abort() : route.continue(),
@@ -292,7 +295,7 @@ async function expectRefreshRequestFailedAndListStillShown(page: Page): Promise<
 
 test('補助・判断31・要件17・要件18（キーボード操作のフォーカス）: ボタン「価格を今すぐ更新」にフォーカスを当てて Enter で押し、結果の文言が出てボタンが押せる状態に戻った後も、フォーカスはそのボタンにある', async ({ page }) => {
   // Given: 利用者Aが 7203 を保有（価格は未保存。ダミーの取得元は 7203 の価格を持つので、更新は成功する）。
-  await insertHoldingsData({ holdings: [TOYOTA_100] })
+  await insertHoldingsData({ trades: [TOYOTA_100] })
   // 更新中の状態が1フレームより短いと、ボタンが disabled になってもフォーカスが外れず、フォーカスを戻す処理がなくても通ってしまう。
   // 応答を 300ms 遅らせて、更新中の状態を確実に作る（実際の API の応答はそのまま返す。このテストの中だけ）。
   await page.route(PRICE_REFRESH_API, async (route) => {
@@ -318,7 +321,7 @@ test('補助・判断31・要件17・要件18（キーボード操作のフォ�
 test('補助・判断31・要件19（キーボード操作のフォーカス・失敗のとき）: ボタン「価格を今すぐ更新」にフォーカスを当てて Enter で押し、要求が失敗して「価格の更新に失敗しました」が出てボタンが押せる状態に戻った後も、フォーカスはそのボタンにある', async ({ page }) => {
   // Given: 利用者Aが 7203 を保有し、価格も保存済み（一覧が出るデータ）。今すぐ更新の API は 300ms 後に HTTP 500 を返す
   // （更新中の状態を確実に作るための遅延。成功のときのテストと同じ理由）。
-  await insertHoldingsData({ holdings: [TOYOTA_100], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   await page.route(PRICE_REFRESH_API, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 300))
     await route.fulfill({
@@ -346,7 +349,7 @@ test('補助・判断31・要件19（キーボード操作のフォーカス・�
 test('補助・判断31（更新中に移したフォーカスは取り上げない）: Enter で押した後、更新中に Tab で表の横スクロールの領域へフォーカスを移すと、更新が終わって結果の文言が出た後も、フォーカスは表の領域にあり、ボタンに奪い返されない', async ({ page }) => {
   // Given: 利用者Aが 7203 を保有。今すぐ更新の API は 1500ms 後に、実際の応答をそのまま返す
   // （更新中に Tab を押して確かめる間、更新中の状態を保つための長めの遅延）。
-  await insertHoldingsData({ holdings: [TOYOTA_100] })
+  await insertHoldingsData({ trades: [TOYOTA_100] })
   await page.route(PRICE_REFRESH_API, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1500))
     await route.continue()
@@ -377,9 +380,9 @@ test('補助・判断31（更新中に移したフォーカスは取り上げな
 // PR②: 「⋯」のメニューと銘柄の削除
 // ======================================================================
 
-test('補助 要件2（PR② の分。PR③ で基準2 に置き換える）: 6758・7203・9984 を保有し、真ん中の 7203 の「⋯」を押すとメニューが開いて項目は「削除」だけ。Esc でメニューが閉じ、フォーカスが「トヨタ自動車の操作」にある', async ({ page }) => {
+test('値段の更新の基準2・基準18（売買履歴の要件17）: 6758・7203・9984 を保有し、真ん中の 7203 の「⋯」を押すとメニューが開いて項目は「削除」だけ。Esc でメニューが閉じ、フォーカスが「トヨタ自動車の操作」にある', async ({ page }) => {
   // Given: 利用者Aが 6758・7203・9984 の3行を保有（真ん中の 7203 から開く。先頭や最後の行にフォーカスを戻す誤りを見分けるため。プラン 5章）。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, SOFTBANK_50] })
   await page.goto(HOLDINGS_PATH)
   const button = operationButton(page, 'トヨタ自動車')
   await expect(button).toBeVisible()
@@ -391,7 +394,7 @@ test('補助 要件2（PR② の分。PR③ で基準2 に置き換える）: 67
   // When: 7203 の行の「⋯」を押す。
   await button.click()
 
-  // Then: メニューが開き、項目は「削除」だけ（PR③ で「編集」が先頭に足される）。
+  // Then: メニューが開き、項目は「削除」だけ（「編集」はない。売買履歴の要件17。値段の更新の基準2 を基準18 に置き換えた。プラン 5.5）。
   await expect(button).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('menu')).toBeVisible()
   await expect(page.getByRole('menuitem')).toHaveText([DELETE_MENU_ITEM])
@@ -413,7 +416,7 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
   //   7203 の終値は3,000円・2026-10-06、6758 の終値は3,500円・2026-10-06（合計評価額が取り直されることを確かめるため。
   //   400株×3,000円＋50株×3,500円＝1,375,000円）。
   await insertHoldingsData({
-    holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50],
+    trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50],
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
   await page.goto(HOLDINGS_PATH)
@@ -423,7 +426,7 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
   // When: 7203 の「⋯」→「削除」を選ぶ。
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
 
-  // Then: 「7203 トヨタ自動車を削除しますか？この銘柄の保有データはすべて削除されます。」の確認のダイアログが開く。
+  // Then: 「7203 トヨタ自動車を削除しますか？この銘柄の売買履歴はすべて削除されます。」の確認のダイアログが開く。
   //   ボタンは「キャンセル」「削除する」の順（判断33）。まだ何も消えていない（7203 の行は残っている）。
   await expect(dialog).toContainText(DELETE_CONFIRM_MESSAGE)
   await expect(dialog.getByRole('button')).toHaveText([DELETE_CANCEL_BUTTON, DELETE_CONFIRM_BUTTON])
@@ -443,7 +446,7 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
   // 開いた行がなくなったので、フォーカスは画面の見出しに移る（プラン 4.4「閉じた後のフォーカス」）。
   await expect(holdingsHeading(page)).toBeFocused()
 
-  // 画面の表示だけでなく、サーバーの保有データが消えている（開き直しても 7203 の行はない）。
+  // 画面の表示だけでなく、サーバーの売買履歴が消えている（開き直しても 7203 の行はない）。
   await page.reload()
   await expect(dataCells(holdingRow(page, '6758'))).toHaveText(SONY_50_PRICED_ROW)
   await expect(totalRegion(page)).toContainText(amountPattern('175,000円'))
@@ -451,9 +454,48 @@ test('基準21（要件13・要件14）: 7203 を2件、6758 を1件保有し、
   await expect(page.locator('tbody tr')).toHaveCount(1)
 })
 
+test('基準19（売買履歴の要件18）: 7203 を売買履歴3件、6758 を1件で持ち、7203 の「⋯」→「削除」を選ぶと「この銘柄の売買履歴はすべて削除されます。」の確認のダイアログが開き、「削除する」を押すとダイアログが閉じ、一覧は 6758 の行だけになる', async ({ page }) => {
+  // Given: 利用者Aが 7203 を売買履歴3件（買 100株・2,000円、買 300株・3,000円、売 100株・3,500円。保有数量は300株）、6758 を1件（買 50株・3,200円）で持つ。
+  await insertHoldingsData({
+    trades: [
+      TOYOTA_FIRST,
+      TOYOTA_SECOND,
+      { code: '7203', side: 'sell', quantity: 100, price: '3500.0', tradeDate: '2026-02-10' },
+      SONY_50,
+    ],
+    prices: [TOYOTA_PRICE, SONY_PRICE],
+  })
+  await page.goto(HOLDINGS_PATH)
+  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+    '7203',
+    'トヨタ自動車',
+    '300株',
+    '2,750円',
+    '3,000円',
+    '2026-10-06',
+    '900,000円',
+  ])
+
+  // When: 7203 の「⋯」→「削除」を選ぶ。
+  const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
+
+  // Then: 「7203 トヨタ自動車を削除しますか？この銘柄の売買履歴はすべて削除されます。」の確認のダイアログが開く。まだ何も消えていない。
+  await expect(dialog).toContainText(DELETE_CONFIRM_MESSAGE)
+  await expect(holdingRow(page, '7203')).toHaveCount(1)
+
+  // When: 「削除する」を押す。
+  await dialog.getByRole('button', { name: DELETE_CONFIRM_BUTTON, exact: true }).click()
+
+  // Then: ダイアログが閉じ、一覧は 6758 の行だけになる。
+  await expect(dialog).toHaveCount(0)
+  await expect(holdingRow(page, '7203')).toHaveCount(0)
+  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await expect(dataCells(holdingRow(page, '6758'))).toHaveText(SONY_50_PRICED_ROW)
+})
+
 test('基準22（要件13）: 6758・7203（2件）・9984 を保有し、確認のダイアログで「キャンセル」を押すとダイアログが閉じ、7203 の行は「400株」のまま表示され、フォーカスは「トヨタ自動車の操作」に戻り、開き直しても 7203 は「400株」のままである', async ({ page }) => {
   // Given: 基準21 と同じ 7203 の2件（400株）に、6758 と 9984 を足した3行（真ん中の 7203 から開き、フォーカスの戻り先を見分けるため。プラン 5章）。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
   await page.goto(HOLDINGS_PATH)
   await expectToyotaRowMerged(page)
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
@@ -476,7 +518,7 @@ test('基準22（要件13）: 6758・7203（2件）・9984 を保有し、確認
 
 test('補助 判断22・要件13（基準22 の補足）: 確認のダイアログは Esc でもキャンセルと同じに閉じ（何も消えない）、フォーカスは「トヨタ自動車の操作」に戻る', async ({ page }) => {
   // Given: 基準22 と同じ3行（7203 は2件）。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
   await page.goto(HOLDINGS_PATH)
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
 
@@ -491,7 +533,7 @@ test('補助 判断22・要件13（基準22 の補足）: 確認のダイアロ�
 
 test('補助 判断33（基準21 の補足）: 確認のダイアログを開いた直後は、フォーカスが「キャンセル」にある。そのまま Enter を押しても何も消えず、ダイアログが閉じて 7203 の行は「400株」のままである', async ({ page }) => {
   // Given: 7203 を2件、6758 と 9984 を保有（3行）。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
   await page.goto(HOLDINGS_PATH)
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
 
@@ -511,7 +553,7 @@ test('補助 判断33（基準21 の補足）: 確認のダイアログを開い
 
 test('補助 判断13（要件14）: 削除の要求が終わるまで「削除する」は押せず、押し直そうとしても削除の要求は1回だけ送られ、終わるとダイアログが閉じて 7203 の行がなくなる', async ({ page }) => {
   // Given: 7203（2件）と 6758 を保有。削除の API は 800ms 遅れて実際の応答を返す（削除中の状態を確実に作るため。このテストの中だけ）。
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   let deleteRequests = 0
   await page.route(HOLDING_DELETE_API, async (route) => {
     if (route.request().method() !== 'DELETE') {
@@ -555,7 +597,7 @@ async function expectDeleteFailedAndDialogStillOpen(page: Page, dialog: Locator)
 
 test('基準24（要件15）: 銘柄の削除の API が HTTP 500 を返すとき、「削除する」を押してもダイアログは開いたまま「削除できませんでした」と表示され、一覧の 7203 の行は残っている', async ({ page }) => {
   // Given: 利用者Aが 7203（2件）と 6758 を保有。削除の API がエラー（HTTP 500。本文は 4.4「API」の失敗時の形）を返す（DELETE だけ。ほかの要求はそのまま通す）。
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   await page.route(HOLDING_DELETE_API, (route) =>
     route.request().method() === 'DELETE'
       ? route.fulfill({
@@ -575,7 +617,7 @@ test('基準24（要件15）: 銘柄の削除の API が HTTP 500 を返すと�
 })
 
 test('補助 要件15（基準24 と同じ表示）: 銘柄の削除の API への通信が失敗したとき（abort）、ダイアログは開いたまま「削除できませんでした」と表示され、一覧の 7203 の行は残っている', async ({ page }) => {
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   // Given: 削除の API への通信がエラーになる（応答が返らない）。DELETE だけ。ほかの要求はそのまま通す。
   await page.route(HOLDING_DELETE_API, (route) =>
     route.request().method() === 'DELETE' ? route.abort() : route.continue(),
@@ -647,7 +689,7 @@ async function expectDialogHeldOpenAgainstEscape(page: Page, dialog: Locator): P
 
 test('補助 判断37（要件13）: マウスで「削除する」を押した後、削除中は「キャンセル」が押せず、Esc を続けて3回押してもダイアログは閉じない。応答の後にダイアログが閉じ、7203 の行がなくなり、フォーカスは見出しにある', async ({ page }) => {
   // Given: 7203（2件）と 6758 を保有。削除の API の要求は、テストが解放するまで止める。
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   const held = await holdRequests(page, HOLDING_DELETE_API, 'DELETE')
   await page.goto(HOLDINGS_PATH)
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
@@ -666,7 +708,7 @@ test('補助 判断37（要件13）: マウスで「削除する」を押した�
 })
 
 test('補助 判断37（要件13）: キーボード（Tab で移って Enter）で「削除する」を押した後、削除中は「キャンセル」が押せず、Esc を続けて3回押してもダイアログは閉じない。応答の後にダイアログが閉じ、7203 の行がなくなり、フォーカスは見出しにある', async ({ page }) => {
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   const held = await holdRequests(page, HOLDING_DELETE_API, 'DELETE')
   await page.goto(HOLDINGS_PATH)
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
@@ -689,7 +731,7 @@ test('補助 判断37（要件13）: キーボード（Tab で移って Enter）
 
 test('補助 要件1・要件14: 7203 だけを保有し、7203 を削除すると、「保有株式はありません」が表示され、「価格を今すぐ更新」も「⋯」も表示されず、フォーカスは見出しにある', async ({ page }) => {
   // Given: 利用者Aが 7203 だけを保有（価格あり。一覧と今すぐ更新のボタンが出るデータ）。
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND], prices: [TOYOTA_PRICE] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND], prices: [TOYOTA_PRICE] })
   await page.goto(HOLDINGS_PATH)
   await expect(refreshButton(page)).toBeVisible()
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
@@ -710,7 +752,7 @@ test('補助 要件1・要件14: 7203 だけを保有し、7203 を削除する�
 
 test('補助 要件14・要件15（失敗の後に押し直す）: 1回目の削除が HTTP 500 で失敗しても、ダイアログを開いたまま「削除する」を押し直すと成功し、ダイアログが閉じて 7203 の行がなくなる', async ({ page }) => {
   // Given: 7203（2件）と 6758 を保有。1回目の DELETE だけ 500、2回目は実際の応答を返す。
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   let deleteRequests = 0
   await page.route(HOLDING_DELETE_API, async (route) => {
     if (route.request().method() !== 'DELETE') {
@@ -746,7 +788,7 @@ test('補助 要件14・要件15（失敗の後に押し直す）: 1回目の削
 
 test('補助 要件13・要件15（失敗の後にキャンセルする）: 削除が HTTP 500 で失敗した後に「キャンセル」を押すと、ダイアログが閉じ、フォーカスは「トヨタ自動車の操作」に戻り、一覧は変わらない', async ({ page }) => {
   // Given: 6758・7203（2件）・9984 の3行（真ん中の 7203 から開く）。削除の API は 500 を返す。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
   await page.route(HOLDING_DELETE_API, (route) =>
     route.request().method() === 'DELETE'
       ? route.fulfill({
@@ -775,7 +817,7 @@ test('補助 要件13・要件15（失敗の後にキャンセルする）: 削�
 
 test('補助 判断31 と同じ方法（デザインの指摘3）: キーボードで「削除する」を押して（Tab で移って Enter）削除が遅れて失敗した後、フォーカスは「削除する」にある', async ({ page }) => {
   // Given: 7203（2件）と 6758 を保有。削除の API は 300ms 遅れて 500 を返す（削除中の状態を確実に作るため。このテストの中だけ）。
-  await insertHoldingsData({ holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
+  await insertHoldingsData({ trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50] })
   await page.route(HOLDING_DELETE_API, async (route) => {
     if (route.request().method() !== 'DELETE') {
       await route.continue()
@@ -808,7 +850,7 @@ test('補助 判断31 と同じ方法（デザインの指摘3）: キーボー�
 test('補助 デザインの指摘1: 幅 375px で保有のある一覧を開いても、ページ全体は横にスクロールしない', async ({ page }) => {
   // Given: 4銘柄を保有（価格あり・なしの両方。8列の表が狭い画面の幅を超える。表の中は横にスクロールしてよい）。
   await insertHoldingsData({
-    holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50, SOFTBANK_100],
+    trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50, SOFTBANK_100],
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
   await page.setViewportSize({ width: 375, height: 667 })
@@ -838,15 +880,15 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
       { code: BIG_QUANTITY_CODE, name: BIG_QUANTITY_NAME },
       { code: KATAKANA_NAME_CODE, name: KATAKANA_NAME },
     ],
-    holdings: [
+    trades: [
       TOYOTA_FIRST,
       TOYOTA_SECOND,
       SOFTBANK_100,
-      { code: LONG_NAME_CODE, quantity: 100, acquisitionPrice: '1500.0' },
-      { code: '6758', quantity: 100, acquisitionPrice: '2700.0' },
-      { code: '6758', quantity: 200, acquisitionPrice: '2800.0' },
-      { code: BIG_QUANTITY_CODE, quantity: 10000, acquisitionPrice: '12000.0' },
-      { code: KATAKANA_NAME_CODE, quantity: 100, acquisitionPrice: '1000.0' },
+      { code: LONG_NAME_CODE, side: 'buy', quantity: 100, price: '1500.0', tradeDate: BUY_DATE },
+      { code: '6758', side: 'buy', quantity: 100, price: '2700.0', tradeDate: BUY_DATE },
+      { code: '6758', side: 'buy', quantity: 200, price: '2800.0', tradeDate: BUY_DATE },
+      { code: BIG_QUANTITY_CODE, side: 'buy', quantity: 10000, price: '12000.0', tradeDate: BUY_DATE },
+      { code: KATAKANA_NAME_CODE, side: 'buy', quantity: 100, price: '1000.0', tradeDate: BUY_DATE },
     ],
     prices: [
       TOYOTA_PRICE,
@@ -936,7 +978,7 @@ test('補助 判断39（デザインの指摘2）: 幅 1280px（高さ 720px）�
 
 test('補助 要件2・判断21（キーボードだけで確認のダイアログを開く）: 「⋯」にフォーカスして Enter でメニューを開き、「削除」で Enter を押すと、確認のダイアログが開く（フォーカスは「キャンセル」）', async ({ page }) => {
   // Given: 6758・7203・9984 の3行（真ん中の 7203 から開く）。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, SOFTBANK_50] })
   await page.goto(HOLDINGS_PATH)
   const button = operationButton(page, 'トヨタ自動車')
   await expect(button).toBeVisible()
@@ -964,7 +1006,7 @@ test('補助 要件2・判断21（キーボードだけで確認のダイアロ�
 
 test('補助 判断40（ステップ6 のテストの網羅の指摘3）: 今すぐ更新が終わらないうちに 7203 の確認のダイアログを開き、その間に 7203 が消えると、一覧が取り直されて 7203 の行がなくなり、「キャンセル」で閉じたとき、フォーカスは見出しに移る', async ({ page }) => {
   // Given: 6758・7203（2件）・9984 の3行を保有。今すぐ更新の要求は、テストが解放するまで止める。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
   const refresh = await holdRequests(page, PRICE_REFRESH_API, 'POST')
   await page.goto(HOLDINGS_PATH)
   await refreshButton(page).click()
@@ -973,7 +1015,7 @@ test('補助 判断40（ステップ6 のテストの網羅の指摘3）: 今す
 
   // 確認のダイアログを開いている間に、DB から 7203 が消える（6758 と 9984 だけを入れ直す）。
   await resetHoldingsData()
-  await insertHoldingsData({ holdings: [SONY_50, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, SOFTBANK_50] })
   // 今すぐ更新の応答を解放すると、一覧が取り直され、7203 の行が（背後で）なくなる。ダイアログは開いたまま。
   refresh.release()
   await expect(holdingRow(page, '7203')).toHaveCount(0)
@@ -990,7 +1032,7 @@ test('補助 判断36・判断41（ステップ6 のテストの網羅の指摘4
   const codes = Array.from({ length: 12 }, (_, i) => String(1001 + i))
   await insertHoldingsData({
     stocks: codes.map((code) => ({ code, name: `E2E銘柄${code}` })),
-    holdings: codes.map((code) => ({ code, quantity: 100, acquisitionPrice: '2500.0' })),
+    trades: codes.map((code) => ({ code, side: 'buy', quantity: 100, price: '2500.0', tradeDate: BUY_DATE })),
   })
   await page.setViewportSize({ width: 1280, height: 480 })
   await page.goto(HOLDINGS_PATH)
@@ -1028,7 +1070,7 @@ test('補助 判断36・判断41（ステップ6 のテストの網羅の指摘4
 
 test('補助 判断37・判断22（ステップ6 3ラウンド目の優先度1）: 削除中に Esc を止める見張りは、削除が失敗して終わった後は外れている。失敗の後に Esc を1回押すとダイアログが閉じ、フォーカスは「トヨタ自動車の操作」に戻り、7203 は「400株」のままである', async ({ page }) => {
   // Given: 6758・7203（2件）・9984 の3行を保有。削除の API の要求は、テストが解放するまで止め、解放すると HTTP 500 を返す。
-  await insertHoldingsData({ holdings: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
+  await insertHoldingsData({ trades: [SONY_50, TOYOTA_FIRST, TOYOTA_SECOND, SOFTBANK_50] })
   const held = await holdRequests(page, HOLDING_DELETE_API, 'DELETE', 500)
   await page.goto(HOLDINGS_PATH)
   const dialog = await openDeleteConfirm(page, 'トヨタ自動車')
@@ -1055,7 +1097,7 @@ test('補助 判断37・判断22（ステップ6 3ラウンド目の優先度1�
 test('補助 判断41（ステップ6 3ラウンド目のテストの網羅の指摘3）: 幅 375px で表の領域を横にスクロールして「⋯」の右側が画面の外に出る位置にし、見えている部分を押しても、メニューは横にも画面の中（左端が0以上、右端が375以下）に出る', async ({ page }) => {
   // Given: 7203・6758 を保有（価格あり。8列の表が狭い画面の幅を超え、表の領域が横にスクロールする）。
   await insertHoldingsData({
-    holdings: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50],
+    trades: [TOYOTA_FIRST, TOYOTA_SECOND, SONY_50],
     prices: [TOYOTA_PRICE, SONY_PRICE],
   })
   const VIEWPORT_WIDTH = 375

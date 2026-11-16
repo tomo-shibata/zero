@@ -22,6 +22,10 @@ import (
 	"github.com/tomo-shibata/zero/backend/test/testdb"
 )
 
+// 売買履歴への作り変え（docs/plans/trade-history/plan.md 5.2・5.3。PR①）: 前提の保有データ（holdings）は売買履歴（買い）で作る
+// （insertBuy）。API の形はそのまま（PR② で通貨を足す）。偽の読み取りは ListHoldingRows → ListTradeRows。
+// 保有数量が途中で負になる売買履歴を SQL で入れると、API は 500 と internal_error（5.3、判断6）。
+//
 // 仕様: GET /api/holdings の応答（プラン docs/plans/stock-holdings/plan.md 4.4「API」）。
 // 確かめるのは、プラン 5.1 の次の行（PR②）。
 //   - 「AC-1、7、8、8a、9、11 の API 部分」: 要件（docs/requirements/stock-holdings.md）の各 AC と同じデータで
@@ -128,7 +132,7 @@ func compactJSON(data []byte) string {
 func TestAC1_API_価格のある銘柄の行を単価は小数第1位付きの文字列で評価額は整数で返す(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
 	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
 
 	rec := getHoldingsFromDB(t, pool)
@@ -151,8 +155,8 @@ func TestAC1_API_価格のある銘柄の行を単価は小数第1位付きの�
 func TestAC7_AC8a_API_全銘柄に価格があれば合計評価額は評価額の合計で注記のフラグはfalse(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
-	insertHolding(t, pool, seedUserA, "6758", 10, "3200")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "6758", 10, "3200")
 	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
 	insertClosePrice(t, pool, "6758", "2026-10-06", "3500")
 
@@ -181,8 +185,8 @@ func TestAC7_AC8a_API_全銘柄に価格があれば合計評価額は評価額�
 func TestAC8_AC11_API_価格のない銘柄はnullで返し合計評価額に含めず注記のフラグはtrue(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
-	insertHolding(t, pool, seedUserA, "9984", 10, "9000")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "9984", 10, "9000")
 	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
 
 	rec := getHoldingsFromDB(t, pool)
@@ -208,7 +212,7 @@ func TestAC8_AC11_API_価格のない銘柄はnullで返し合計評価額に含
 func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者の保有があっても空の配列と合計0を返す(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserB, "6758", 10, "3200")
+	insertBuy(t, pool, seedUserB, "6758", 10, "3200")
 
 	rec := getHoldingsFromDB(t, pool)
 
@@ -224,7 +228,7 @@ func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者�
 func TestFR8_TC11_PR2_TC08_API_現在の価格は最新の取引日の終値で行は増えない(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
 	insertClosePrice(t, pool, "7203", "2026-10-05", "2900")
 	insertClosePrice(t, pool, "7203", "2026-10-06", "3000")
 	insertClosePrice(t, pool, "7203", "2026-10-02", "3100")
@@ -244,13 +248,13 @@ func TestFR8_TC11_PR2_TC08_API_現在の価格は最新の取引日の終値で�
 
 // 補助 FR-4・FR-12・FR-19（TC-14）: 桁数を指定しない NUMERIC は書いた桁（scale）のまま保存されるので、
 // DB から読むときに scale が 0 でも 1 でも正しく 0.1円単位にする（プラン 4.2）。
-// 7203 を 1株・取得価格 2000（scale 0）と 2株・2001.0（scale 1）で保有し、終値は 1234.5
+// 7203 を 1株・価格 2000（scale 0）と 2株・2001.0（scale 1）で買い、終値は 1234.5
 // → quantity 3・acquisitionPrice "2000.7"・currentPrice "1234.5"・valuation 3703・totalValuation 3703。
 func TestFR4_FR12_FR19_TC14_API_scaleの違う単価も正しく読んで集約する(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 1, "2000")
-	insertHolding(t, pool, seedUserA, "7203", 2, "2001.0")
+	insertBuy(t, pool, seedUserA, "7203", 1, "2000")
+	insertBuy(t, pool, seedUserA, "7203", 2, "2001.0")
 	insertClosePrice(t, pool, "7203", "2026-10-06", "1234.5")
 
 	rec := getHoldingsFromDB(t, pool)
@@ -277,7 +281,7 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 	t.Run("取得価格0.1と終値3000.00", func(t *testing.T) {
 		t.Parallel()
 		pool := testdb.New(t)
-		insertHolding(t, pool, seedUserA, "7203", 1, "0.1")
+		insertBuy(t, pool, seedUserA, "7203", 1, "0.1")
 		insertClosePrice(t, pool, "7203", "2026-10-06", "3000.00")
 
 		rec := getHoldingsFromDB(t, pool)
@@ -298,7 +302,7 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 	t.Run("取得価格2001.00と終値1234.50", func(t *testing.T) {
 		t.Parallel()
 		pool := testdb.New(t)
-		insertHolding(t, pool, seedUserA, "7203", 1, "2001.00")
+		insertBuy(t, pool, seedUserA, "7203", 1, "2001.00")
 		insertClosePrice(t, pool, "7203", "2026-10-06", "1234.50")
 
 		rec := getHoldingsFromDB(t, pool)
@@ -321,7 +325,7 @@ type failingHoldingsReader struct{}
 // failingReaderDetail は、fake が返すエラーの内容。応答に出てはいけない（4.4: 内部のエラー内容は返さない）。
 const failingReaderDetail = "fake: connection refused to db.internal:5432"
 
-func (failingHoldingsReader) ListHoldingRows(context.Context, uuid.UUID) ([]dto.HoldingRow, error) {
+func (failingHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.TradeRow, error) {
 	return nil, errors.New(failingReaderDetail)
 }
 
@@ -339,8 +343,8 @@ func TestFR22_TC24_API_保有データを読めないときは500とinternal_err
 // emptyHoldingsReader は、保有データが0件の HoldingsReader（境界の外側の fake。判断12 用。DB を使わずに router を組み立てるため）。
 type emptyHoldingsReader struct{}
 
-func (emptyHoldingsReader) ListHoldingRows(context.Context, uuid.UUID) ([]dto.HoldingRow, error) {
-	return []dto.HoldingRow{}, nil
+func (emptyHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.TradeRow, error) {
+	return []dto.TradeRow{}, nil
 }
 
 // 補助 判断12（SR-6、S-1）: Deps.AllowedHosts にない Host（例 example.com）で /api/holdings を呼ぶと
@@ -374,4 +378,33 @@ func Test判断12_SR6_S1_許可リストにないHostのapiは403でhealthzはHo
 			}
 		})
 	}
+}
+
+// 5.3・判断6: 保有数量が途中で負になる売買履歴（取り込みを通さずに SQL で入れた壊れたデータ。Aが持っていない 7203 を売る）が
+// あると、GET /api/holdings は 500 と {"error":"internal_error"}（誤った一覧を 200 で返さない。本文に内容を出さない）。
+// 対照: 同じ DB で売りを買いの後ろにした正しい売買履歴なら 200。
+func TestPR1_5_3_API_保有数量が負になる売買履歴なら500とinternal_errorを返す(t *testing.T) {
+	t.Parallel()
+
+	t.Run("持っていない株の売りがあると500", func(t *testing.T) {
+		t.Parallel()
+		pool := testdb.New(t)
+		insertBuy(t, pool, seedUserA, "6758", 10, "3200")
+		insertTrade(t, pool, seedUserA, "7203", "sell", 10, "2500", "2026-02-10")
+
+		rec := getHoldingsFromDB(t, pool)
+
+		assertJSONResponse(t, rec, http.StatusInternalServerError, `{"error":"internal_error"}`)
+	})
+
+	t.Run("対照_買いの後の売りなら200", func(t *testing.T) {
+		t.Parallel()
+		pool := testdb.New(t)
+		insertBuy(t, pool, seedUserA, "7203", 10, "2500")
+		insertTrade(t, pool, seedUserA, "7203", "sell", 10, "2600", "2026-02-10")
+
+		rec := getHoldingsFromDB(t, pool)
+
+		assertJSONResponse(t, rec, http.StatusOK, emptyListJSON)
+	})
 }

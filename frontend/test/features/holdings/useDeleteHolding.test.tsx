@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test, vi, type Mock } from 'vitest'
 import { useDeleteHolding } from '../../../src/features/holdings/hooks/useDeleteHolding'
 import { useHoldings } from '../../../src/features/holdings/hooks/useHoldings'
 
-// 仕様: 要件 docs/requirements/price-update.md の要件14（「削除する」を押すと、保有データを削除し、ダイアログを閉じて一覧と合計評価額を取得し直して表示する）。
+// 仕様: 要件 docs/requirements/price-update.md の要件14（「削除する」を押すと、その銘柄の売買履歴をすべて削除し、ダイアログを閉じて一覧と合計評価額を取得し直して表示する）。
 // 境界: プラン docs/plans/price-update/plan.md 判断37（ステップ6 の 2ラウンド目で進行役が決めた）
 //   削除が 204 で成功した後の一覧の取り直しが返らなくても、10秒たったらダイアログを閉じる（削除した扱い）。
 //   ダイアログは useDeleteHolding の mutation が成功するまで閉じない（DeleteHoldingDialog は mutate に渡した onSuccess で閉じる）ので、

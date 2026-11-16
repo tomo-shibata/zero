@@ -10,15 +10,16 @@ import (
 	"github.com/tomo-shibata/zero/backend/test/testdb"
 )
 
-// 仕様: プラン（docs/plans/stock-holdings/plan.md）4.2 の stocks・stock_prices・holdings の行の制約と、
-// 5.1「補助のテスト（バックエンド）」の FR-8・FR-19・FR-20・4.2（PR② の TC-04）の行。
+// 仕様: プラン（docs/plans/stock-holdings/plan.md）4.2 の stocks・stock_prices の行の制約と、
+// 5.1「補助のテスト（バックエンド）」の FR-8・FR-20・4.2（PR② の TC-04）の行。
+// holdings の NaN・Infinity のテスト（FR-19）は、売買履歴への作り変え（docs/plans/trade-history/plan.md 5.5）で消し、
+// trades の制約のテスト（trades_constraints_test.go）に置き換えた。
 //   - stocks: code と name は空文字不可（23514）、NULL 不可（23502）。
 //   - stock_prices: close_price > 0・close_price = round(close_price, 1)・close_price < 'Infinity'・isfinite(trading_date)（23514）、
 //     すべての列が NOT NULL（23502）、FK(stocks)（23503）。
-//   - holdings: acquisition_price < 'Infinity'（'NaN'・'Infinity' を 23514 で拒否）。
 //
-// 形は AC-15（holdings_constraints_test.go）と同じ: 正しい行が保存できることを確かめてから、そこから1項目だけ変えた INSERT が
-// 制約の種類の SQLSTATE で失敗することを確かめる。SQLSTATE の定数は holdings_constraints_test.go のもの。
+// 形は trades の制約のテスト（trades_constraints_test.go）と同じ: 正しい行が保存できることを確かめてから、そこから1項目だけ変えた INSERT が
+// 制約の種類の SQLSTATE で失敗することを確かめる。SQLSTATE の定数は trades_constraints_test.go のもの。
 //
 // stocks と stock_prices は主キーを持つので、正しい行と1項目だけ変えた行が同じ主キーになる。
 // 互いに影響しないよう、この2つの表への INSERT は、最後にロールバックするトランザクションの中で1件ずつ行う
@@ -182,33 +183,6 @@ func TestFR8_FR19_FR20_PR2_TC04_終値は0や小数第2位やNaNや無限大や�
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assertSQLState(t, tryInsertStockPrice(t, pool, tc.v), tc.v, tc.wantCode)
-		})
-	}
-}
-
-// ---- holdings ----
-
-// 補助 FR-19・4.2（PR② の TC-04）: AC-15 の正しい行から、取得価格だけを 'NaN'・'Infinity' にした保有データは 23514 で保存できない
-// （PostgreSQL では NaN・Infinity が「> 0」と「= round(…, 1)」を通ってしまうため、4.2 で「< 'Infinity'」を足した）。
-// holdings は主キーが行ごとの連番で重ならないので、AC-15 と同じヘルパー（コミットする INSERT）を使う。
-func TestFR19_PR2_TC04_取得価格がNaNや無限大の保有データは保存できない(t *testing.T) {
-	t.Parallel()
-	pool := testdb.New(t)
-
-	valid := validHolding()
-	requireSaved(t, pool, valid)
-
-	cases := []struct {
-		name string
-		v    holdingValues
-	}{
-		{"acquisition_priceがNaN", valid.with(func(v *holdingValues) { v.acquisitionPrice = "NaN" })},
-		{"acquisition_priceがInfinity", valid.with(func(v *holdingValues) { v.acquisitionPrice = "Infinity" })},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			assertRejected(t, pool, tc.v, sqlStateCheckViolation)
 		})
 	}
 }

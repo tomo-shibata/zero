@@ -16,7 +16,7 @@ type FetchResult struct {
 	Failed []string // 終値を取得できなかった、または保存できなかった銘柄コード（Saved と同じ順）
 }
 
-// FetchClosingPrices は、保有されている全銘柄の終値を取得元から取得して保存するユースケース（要件 FR-15、FR-16）。
+// FetchClosingPrices は、誰かの保有数量が1以上の銘柄の終値を取得元から取得して保存するユースケース（要件16、保有株式一覧の FR-15・FR-16）。
 // 18:00 の定時実行（cmd/api のスケジューラ）と、手動実行（cmd/fetch-prices。task prices:fetch）が同じこれを使う（FR-15a）。
 // 今すぐ更新（RefreshPrices）も、ログイン中の利用者の保有銘柄に絞って、取得と保存の部分（ExecuteCodes）を使う。
 type FetchClosingPrices struct {
@@ -31,7 +31,7 @@ func NewFetchClosingPrices(src PriceSource, holdings repository.HoldingRepositor
 	return &FetchClosingPrices{source: src, holdings: holdings, prices: prices}
 }
 
-// Execute は、保有されている銘柄ごとに、取得元から終値を取得して保存する（プラン 4.4「株価取得の決まり」）。
+// Execute は、誰かの保有数量が1以上の銘柄ごとに、取得元から終値を取得して保存する（プラン 4.4「株価取得の決まり」）。
 //   - 1銘柄の取得や保存に失敗しても止めずに、その銘柄を Failed に入れて次の銘柄へ進む（FR-16）。
 //     取得元の panic も、その銘柄の失敗として扱う。失敗した銘柄の保存済みの価格には手を付けないので、そのまま残る。
 //   - ctx が取り消されたら、残りの銘柄は取得せずに Failed に入れて返す（エラーは返さない。4.4 決まり4）。
@@ -49,7 +49,7 @@ func (c *FetchClosingPrices) Execute(ctx context.Context) (FetchResult, error) {
 }
 
 // ExecuteCodes は、渡された銘柄コード codes の終値を、取得元から取得して保存する。
-// どの銘柄を取得するかは呼び出し側が決める（定時実行は全利用者の保有銘柄、今すぐ更新はログイン中の利用者の保有銘柄。要件16）。
+// どの銘柄を取得するかは呼び出し側が決める（定時実行は誰かの保有数量が1以上の銘柄、今すぐ更新はログイン中の利用者の保有数量が1以上の銘柄。要件16）。
 // 取得と保存の決まりは Execute と同じ（プラン 4.4「株価取得の決まり」1・2・4）。
 //   - 1銘柄の取得や保存に失敗しても止めずに、その銘柄を Failed に入れて次の銘柄へ進む（FR-16）。
 //     取得元の panic も、その銘柄の失敗として扱う。失敗した銘柄の保存済みの価格には手を付けないので、そのまま残る。
