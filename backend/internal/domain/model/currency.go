@@ -1,5 +1,10 @@
 package model
 
+import (
+	"fmt"
+	"math/big"
+)
+
 // Currency は、銘柄の通貨（要件1）。円（JPY）とドル（USD）だけを扱う。
 // 値は、DB の stocks.currency の CHECK（'JPY'・'USD'。00006）と同じ文字列。
 type Currency string
@@ -25,4 +30,26 @@ func (c Currency) AcceptsPrice(hundredths int64) bool {
 	default:
 		return false
 	}
+}
+
+// PriceHundredths は、価格 price（1株あたり、この通貨の金額）を 0.01 単位の整数にする（要件3・要件24）。
+// この通貨の精度（円は小数第1位、ドルは小数第2位）に合わなければ ErrPriceTooFine を返す。
+// 大きさ（0より大きく1億未満）は確かめない（CheckPrice が先に確かめる）が、0.01 単位の int64 に収まらない値は ErrPriceTooLarge を返す。
+// 知らない通貨はエラーにする。
+func (c Currency) PriceHundredths(price *big.Rat) (int64, error) {
+	if c != CurrencyJPY && c != CurrencyUSD {
+		return 0, fmt.Errorf("知らない通貨 %q です", string(c))
+	}
+	scaled := new(big.Rat).Mul(price, new(big.Rat).SetInt64(hundredthsPerUnit))
+	if !scaled.IsInt() {
+		return 0, ErrPriceTooFine
+	}
+	if !scaled.Num().IsInt64() {
+		return 0, ErrPriceTooLarge
+	}
+	hundredths := scaled.Num().Int64()
+	if !c.AcceptsPrice(hundredths) {
+		return 0, ErrPriceTooFine
+	}
+	return hundredths, nil
 }
