@@ -8,15 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Holding struct {
-	ID               int64
-	UserID           pgtype.UUID
-	StockCode        string
-	Quantity         int64
-	AcquisitionPrice pgtype.Numeric
-	CreatedAt        pgtype.Timestamptz
-}
-
 type Stock struct {
 	Code string
 	Name string
@@ -27,6 +18,17 @@ type StockPrice struct {
 	TradingDate pgtype.Date
 	ClosePrice  pgtype.Numeric
 	FetchedAt   pgtype.Timestamptz
+}
+
+type Trade struct {
+	ID        int64
+	UserID    pgtype.UUID
+	StockCode string
+	Side      string
+	Quantity  int64
+	Price     pgtype.Numeric
+	TradeDate pgtype.Date
+	CreatedAt pgtype.Timestamptz
 }
 
 type User struct {

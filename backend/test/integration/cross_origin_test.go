@@ -8,6 +8,9 @@ import (
 	"github.com/tomo-shibata/zero/backend/test/testdb"
 )
 
+// 売買履歴への作り変え（docs/plans/trade-history/plan.md 5.2。PR①）: 前提の保有データ（holdings）は売買履歴（買い。insertBuy）で作り、
+// 削除で消えたかは trades を読んで確かめる（assertTrades）。確かめることは変えない。
+//
 // 仕様: 要件（docs/requirements/price-update.md）の非機能1・基準32（別のオリジンからの書き込みの要求は、何も保存・削除せず、取得元も呼ばずに拒否する。
 // アプリの画面と同じオリジンからの同じ要求は受け付ける）と、プラン（docs/plans/price-update/plan.md）5.1 の基準32 の行（PR① は今すぐ更新、PR② は削除）、
 // 5.2 の PR① の判断4 の行、6章の判断4（別のサイトからの書き込みの拒否は http.CrossOriginProtection。読み取りは対象外）。
@@ -25,7 +28,7 @@ import (
 func Test基準32_今すぐ更新は別のオリジンからの要求を拒否し取得元を呼ばず同じオリジンの同じ要求は受け付ける(t *testing.T) {
 	// サブテストを並列にしない（拒否を先に、受け付けを最後に順に送る）ので、tparallel の決まりに合わせてこのテスト自体も並列にしない。
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
 	src := &countingPriceSource{inner: pricesource.NewDummyPriceSource()}
 	h := newRefreshAPI(pool, seedUserA, src)
 
@@ -65,7 +68,7 @@ func Test基準32_今すぐ更新は別のオリジンからの要求を拒否�
 func Test補助_判断4_Sec_Fetch_SiteもOriginもない書き込みは通る(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
 	h := newRefreshAPI(pool, seedUserA, pricesource.NewDummyPriceSource())
 
 	rec := servePost(t, h, priceRefreshPath, nil)
@@ -82,7 +85,7 @@ func Test補助_判断4_Sec_Fetch_SiteもOriginもない書き込みは通る(t 
 func Test補助_判断4_OriginがlocalhostだけでSec_Fetch_Siteがない書き込みはHostと違うので403(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2500")
 	src := &countingPriceSource{inner: pricesource.NewDummyPriceSource()}
 	h := newRefreshAPI(pool, seedUserA, src)
 
@@ -125,7 +128,7 @@ func Test補助_判断4_拒否の403にもno_storeとnosniffが付く(t *testing
 }
 
 // 基準32（非機能1）の PR② の部分: 銘柄の削除（DELETE /api/holdings/{code}）。
-// Given: Aが 7203 を保有（受け付ければ 204 で消える同じ正しい要求になる）。Bの 7203 と、Aの 6758 も保有する
+// Given: Aが 7203 の売買履歴を持つ（受け付ければ 204 で消える同じ正しい要求になる）。Bの 7203 と、Aの 6758 の売買履歴も持つ
 // （受け付けの組で消えるのが、Aの 7203 だけであることまで確かめる）。
 // プラン 5.1: 拒否の (a) Origin: http://evil.example（Sec-Fetch-Site なし） (b) Sec-Fetch-Site: cross-site (c) Sec-Fetch-Site: same-site を先に送り、
 // どれも 403 と {"error":"forbidden"}・何も消えない。最後に受け付けの組（Origin: http://localhost:5173 と Sec-Fetch-Site: same-origin の両方）を送り、
@@ -134,9 +137,9 @@ func Test補助_判断4_拒否の403にもno_storeとnosniffが付く(t *testing
 func Test基準32_削除は別のオリジンからの要求を拒否し何も消さず同じオリジンの同じ要求は受け付ける(t *testing.T) {
 	// サブテストを並列にしない（拒否を先に、受け付けを最後に順に送る）ので、tparallel の決まりに合わせてこのテスト自体も並列にしない。
 	pool := testdb.New(t)
-	insertHolding(t, pool, seedUserA, "7203", 100, "2000")
-	insertHolding(t, pool, seedUserA, "6758", 50, "3200")
-	insertHolding(t, pool, seedUserB, "7203", 10, "2500")
+	insertBuy(t, pool, seedUserA, "7203", 100, "2000")
+	insertBuy(t, pool, seedUserA, "6758", 50, "3200")
+	insertBuy(t, pool, seedUserB, "7203", 10, "2500")
 	h := newDeleteAPI(pool, seedUserA)
 
 	rejected := []struct {
@@ -153,10 +156,10 @@ func Test基準32_削除は別のオリジンからの要求を拒否し何も�
 			rec := serveDelete(t, h, holdingDeletePath("7203"), tc.headers)
 
 			assertJSONResponse(t, rec, http.StatusForbidden, forbiddenJSON)
-			assertHoldings(t, pool, []storedHolding{
-				{seedUserA, "6758", 50, 32000},
-				{seedUserA, "7203", 100, 20000},
-				{seedUserB, "7203", 10, 25000},
+			assertTrades(t, pool, []storedTrade{
+				{seedUserA, "6758", "buy", 50, 320000},
+				{seedUserA, "7203", "buy", 100, 200000},
+				{seedUserB, "7203", "buy", 10, 250000},
 			})
 		})
 	}
@@ -167,9 +170,9 @@ func Test基準32_削除は別のオリジンからの要求を拒否し何も�
 		if rec.Code != http.StatusNoContent {
 			t.Errorf("ステータス: got %d, want %d\n本文: %s", rec.Code, http.StatusNoContent, rec.Body.Bytes())
 		}
-		assertHoldings(t, pool, []storedHolding{
-			{seedUserA, "6758", 50, 32000},
-			{seedUserB, "7203", 10, 25000},
+		assertTrades(t, pool, []storedTrade{
+			{seedUserA, "6758", "buy", 50, 320000},
+			{seedUserB, "7203", "buy", 10, 250000},
 		})
 	})
 }

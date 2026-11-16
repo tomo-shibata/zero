@@ -44,7 +44,7 @@ func (s testPriceSource) FetchClosingPrice(_ context.Context, stockCode string) 
 }
 
 // memoryHoldingRepository は、repository.HoldingRepository を実装したメモリ上のリポジトリ（DB の代わり）。
-// ListHeldStockCodes は、4.4 の決まり（全利用者の保有データにある銘柄コード。重複なし・昇順）のとおりの codes を返す。
+// ListHeldStockCodes は、4.4 の決まり（誰かの保有数量が1以上の銘柄コード。重複なし・昇順）のとおりの codes を返す。
 // err が nil でなければ、codes と err を両方返す（一覧が読めないとき。fetch_closing_prices_failure_test.go が使う）。
 // エラーと一緒に銘柄コードも返すのは、Execute がエラーのときに返った銘柄コードを使わないことを確かめるため
 // （エラーのときに nil を返すと、それを使って取得・保存へ進む実装でも何も保存されず、見分けられない。PR③ ステップ6 2ラウンド目の TC-04）。

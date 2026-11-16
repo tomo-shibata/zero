@@ -10,77 +10,61 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
 )
 
-// 仕様: プラン（docs/plans/stock-holdings/plan.md）4.4「API」の
-// 「計算（数量の合計、加重平均の途中の値 2S+Q と 2Q、評価額の途中の値 終値×数量、合計評価額）が int64 に収まらない保有データのときは、
-// ListHoldings.Execute がエラーを返し、API は 500 と {"error":"internal_error"}」と、
-// 5.1「補助のテスト（バックエンド）」の 4.4 API のあふれ（PR② の EC-1）の行の統合の部分（router を通すと 500。
-// PR② ステップ6 2ラウンド目の EC-8・TC-07 の (b)(d) を含む）。
-// 保有データは、境界の外側の HoldingsReader の fake から渡す（int64 の境界の数量は、DB に入れる手間をかけずに渡せるため。
-// DB を使わないので、(d) の銘柄コード 1001〜1011 の銘柄マスタも要らない）。
-// 単体の部分（EC-9 の境界を含む）は internal/application/query/list_holdings_test.go。
+// 仕様: プラン（docs/plans/trade-history/plan.md）4.3 の「保有の計算」の 6（最後の値が int64 に収まらなければエラー。判断5）と、
+// 5.2（`holdings_api_overflow_test.go`・`calculation_range` のテストは、`ErrCalculationOverflow` を売買履歴で起こすテストに直す）、
+// 5.3（例は3つ: 終値 3,000円で 10^18 株、5×10^18 株の買い2件、行ごとには収まり合計評価額だけがあふれる2銘柄）。
+// 元の保有株式一覧のプラン 4.4「API」の「計算が int64 に収まらない保有データのときは、API は 500 と {"error":"internal_error"}」と同じ形で、
+// GET /api/holdings は 500 と {"error":"internal_error"}（誤った値を 200 で黙って返さない）。
+// 売買履歴は、境界の外側の HoldingsReader の fake から渡す（int64 の境界の数量は、DB に入れる手間をかけずに渡せるため）。
+// 単体の部分は internal/application/query/calculate_holdings_test.go・list_holdings_test.go。
 
-// fixedRowsHoldingsReader は、どの利用者についても決まった保有データの行を返す HoldingsReader（境界の外側の fake。EC-1 用）。
+// fixedRowsHoldingsReader は、どの利用者についても決まった売買履歴の行を返す HoldingsReader（境界の外側の fake）。
 type fixedRowsHoldingsReader struct {
-	rows []dto.HoldingRow
+	rows []dto.TradeRow
 }
 
-func (r fixedRowsHoldingsReader) ListHoldingRows(context.Context, uuid.UUID) ([]dto.HoldingRow, error) {
+func (r fixedRowsHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.TradeRow, error) {
 	return r.rows, nil
 }
 
-// pricedHoldingRow は、銘柄 code の、価格（2026-10-06）が保存済みの保有データ1件（集約前）を作る。単価は Tenths。
-func pricedHoldingRow(code, name string, quantity, acquisitionTenths, closeTenths int64) dto.HoldingRow {
-	return dto.HoldingRow{
-		Code:                   code,
-		Name:                   name,
-		Quantity:               quantity,
-		AcquisitionPriceTenths: acquisitionTenths,
-		ClosePriceTenths:       new(closeTenths),
-		PriceDate:              new("2026-10-06"),
+// buyRow は、銘柄 code・name の買い1件（登録した順は id。取引日 2026-01-10）の売買履歴の行を作る。
+// 銘柄の最新の終値は closeTenths（0.1円単位。2026-10-06）。価格（1株あたり）は 0.1円（Tenths で 1）。
+func buyRow(id int64, code, name string, quantity, closeTenths int64) dto.TradeRow {
+	return dto.TradeRow{
+		ID:               id,
+		Code:             code,
+		Name:             name,
+		Side:             dto.TradeSideBuy,
+		Quantity:         quantity,
+		PriceTenths:      1,
+		TradeDate:        "2026-01-10",
+		ClosePriceTenths: &closeTenths,
+		PriceDate:        new("2026-10-06"),
 	}
 }
 
-// toyotaRow は、7203（トヨタ自動車）の、価格（2026-10-06）が保存済みの保有データ1件（集約前）を作る。単価は Tenths。
-func toyotaRow(quantity, acquisitionTenths, closeTenths int64) dto.HoldingRow {
-	return pricedHoldingRow("7203", "トヨタ自動車", quantity, acquisitionTenths, closeTenths)
-}
-
-// elevenStocksHoldingRows は、プラン 5.1 の (d) の行（PR② ステップ6 の EC-8・TC-07）:
-// 銘柄コードの違う11行（1001〜1011）で、それぞれ数量 300000000000000・取得価格 1・終値 30000（単価は Tenths）。
-// 各行の計算は収まり、合計評価額だけが11行目であふれる。
-func elevenStocksHoldingRows() []dto.HoldingRow {
-	stockCodes := []string{"1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008", "1009", "1010", "1011"}
-	rows := make([]dto.HoldingRow, 0, len(stockCodes))
-	for _, code := range stockCodes {
-		rows = append(rows, pricedHoldingRow(code, "テスト銘柄"+code, 300000000000000, 1, 30000))
-	}
-	return rows
-}
-
-// 4.4 API のあふれ（PR② の EC-1）: 計算が int64 に収まらない保有データなら、GET /api/holdings は
-// 500 と {"error":"internal_error"}（誤った値を 200 で黙って返さない）。
-// (a)(b)(d) の行と (c) の数量はプラン 5.1 の値。(c) の取得価格・終値はプランに指定がないので、最小の単価 0.1円（Tenths で 1）とした。
-// (b) は PR② ステップ6 の EC-8・TC-07 で取得価格を 1 に直し（評価額の途中の値 終値×数量だけがあふれる）、
-// (d) を足した（合計評価額だけがあふれる）。
-func TestPlan4_4_PR2_EC1_EC8_TC07_API_計算がint64に収まらない保有データなら500とinternal_errorを返す(t *testing.T) {
+// 4.3 の 6・5.3: 最後の値が int64 に収まらない売買履歴なら、GET /api/holdings は 500 と {"error":"internal_error"}。
+//
+//	1: 終値 3,000円で 10^18 株（評価額があふれる）
+//	2: 5×10^18 株の買い2件（保有数量があふれる）
+//	3: 行ごとには収まり、合計評価額だけがあふれる2銘柄（どちらも終値 10円・5×10^17 株で評価額 5×10^18円。合計 10^19円）
+func TestPR1_4_3_API_計算がint64に収まらない売買履歴なら500とinternal_errorを返す(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
-		rows []dto.HoldingRow
+		rows []dto.TradeRow
 	}{
-		{"a_数量200000000000000_取得価格30000_終値30000", []dto.HoldingRow{
-			toyotaRow(200000000000000, 30000, 30000),
+		{"1_終値3000円で10の18乗株は評価額があふれる", []dto.TradeRow{
+			buyRow(1, "7203", "トヨタ自動車", 1000000000000000000, 30000),
 		}},
-		// PR2_EC8_TC07: 数量の合計・2S+Q・2Q は収まり、評価額の途中の値 終値×数量だけがあふれる。
-		{"b_PR2_EC8_TC07_数量400000000000000_取得価格1_終値30000", []dto.HoldingRow{
-			toyotaRow(400000000000000, 1, 30000),
+		{"2_5かける10の18乗株の買い2件は保有数量があふれる", []dto.TradeRow{
+			buyRow(1, "7203", "トヨタ自動車", 5000000000000000000, 30000),
+			buyRow(2, "7203", "トヨタ自動車", 5000000000000000000, 30000),
 		}},
-		{"c_同じ銘柄の2行がそれぞれ数量5000000000000000000", []dto.HoldingRow{
-			toyotaRow(5000000000000000000, 1, 1),
-			toyotaRow(5000000000000000000, 1, 1),
+		{"3_行ごとには収まり合計評価額だけがあふれる2銘柄", []dto.TradeRow{
+			buyRow(1, "7203", "トヨタ自動車", 500000000000000000, 100),
+			buyRow(2, "6758", "ソニーグループ", 500000000000000000, 100),
 		}},
-		// PR2_EC8_TC07: 各行の計算は収まり、合計評価額だけが11行目であふれる。
-		{"d_PR2_EC8_TC07_銘柄コードの違う11行がそれぞれ数量300000000000000_取得価格1_終値30000", elevenStocksHoldingRows()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,11 +77,13 @@ func TestPlan4_4_PR2_EC1_EC8_TC07_API_計算がint64に収まらない保有デ�
 		})
 	}
 
-	// 対照: 数量 100・取得価格 25000・終値 30000 なら 200 で、要件 AC-1 の行を返す
+	// 対照: 100株・買 2,500円・終値 3,000円なら 200 で、要件の基準1・保有株式一覧の AC-1 と同じ行を返す
 	// （上の 500 が、fake の行の形などあふれ以外の理由でないことを確かめる）。
-	t.Run("対照_数量100_取得価格25000_終値30000は200", func(t *testing.T) {
+	t.Run("対照_100株_終値3000円は200", func(t *testing.T) {
 		t.Parallel()
-		h := newHoldingsAPI(fixedRowsHoldingsReader{rows: []dto.HoldingRow{toyotaRow(100, 25000, 30000)}})
+		row := buyRow(1, "7203", "トヨタ自動車", 100, 30000)
+		row.PriceTenths = 25000
+		h := newHoldingsAPI(fixedRowsHoldingsReader{rows: []dto.TradeRow{row}})
 
 		rec := serveGet(t, h, holdingsPath, allowedHost)
 

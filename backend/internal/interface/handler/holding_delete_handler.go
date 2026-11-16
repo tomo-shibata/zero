@@ -20,8 +20,8 @@ func NewHoldingDeleteHandler(c *command.DeleteHolding) *HoldingDeleteHandler {
 	return &HoldingDeleteHandler{deleter: c}
 }
 
-// ServeHTTP は、ログイン中の利用者の、パスの銘柄の保有データをすべて削除し、204（本文なし）を返す（値段の更新のプラン 4.4「API」）。
-// その銘柄を1件も保有していない、またはパスの銘柄コードを戻せないときは 404 と {"error":"not_found"} を返す。
+// ServeHTTP は、ログイン中の利用者の、パスの銘柄の売買履歴をすべて削除し、204（本文なし）を返す（値段の更新のプラン 4.4「API」）。
+// その銘柄の売買履歴が1件もない、またはパスの銘柄コードを戻せないときは 404 と {"error":"not_found"} を返す。
 // それ以外の失敗は 500 と {"error":"internal_error"} で、内部のエラーの内容は応答に出すと外に漏れるので、ログにだけ出す。
 // ログにはパスや銘柄コードを入れず、固定の文言にする。クライアントが送った改行などで、偽のログの行を作らせないため。
 func (h *HoldingDeleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +43,7 @@ func (h *HoldingDeleteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			response.Error(w, http.StatusNotFound, response.CodeNotFound)
 			return
 		}
-		log.Printf("api: DELETE /api/holdings/{code}: 保有データを削除できません: %v", err)
+		log.Printf("api: DELETE /api/holdings/{code}: 売買履歴を削除できません: %v", err)
 		response.Error(w, http.StatusInternalServerError, response.CodeInternalError)
 		return
 	}

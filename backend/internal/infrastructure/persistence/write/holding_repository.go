@@ -13,7 +13,7 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/sqlcgen"
 )
 
-// HoldingRepository は、PostgreSQL の保有データを扱う repository.HoldingRepository と repository.HeldStockRepository の実装。
+// HoldingRepository は、PostgreSQL の売買履歴から保有している銘柄を読む repository.HoldingRepository と repository.HeldStockRepository の実装。
 type HoldingRepository struct {
 	queries *sqlcgen.Queries
 }
@@ -24,13 +24,13 @@ var (
 	_ repository.HeldStockRepository = (*HoldingRepository)(nil)
 )
 
-// NewHoldingRepository は、pool の DB の保有データを扱う HoldingRepository を返す。
+// NewHoldingRepository は、pool の DB の売買履歴から保有している銘柄を読む HoldingRepository を返す。
 func NewHoldingRepository(pool *pgxpool.Pool) *HoldingRepository {
 	return &HoldingRepository{queries: sqlcgen.New(pool)}
 }
 
-// ListHeldStockCodes は、全利用者の保有データにある銘柄コードを、重複なし・昇順（Go の文字列比較と同じバイト順）で返す。
-// まとめと並べ替えは SQL（db/query/holdings.sql の ListHeldStockCodes）で行う。
+// ListHeldStockCodes は、誰かの保有数量が1以上の銘柄コードを、重複なし・昇順（Go の文字列比較と同じバイト順）で返す。
+// まとめと並べ替えは SQL（db/query/trades.sql の ListHeldStockCodes）で行う。
 func (r *HoldingRepository) ListHeldStockCodes(ctx context.Context) ([]string, error) {
 	codes, err := r.queries.ListHeldStockCodes(ctx)
 	if err != nil {
@@ -39,8 +39,8 @@ func (r *HoldingRepository) ListHeldStockCodes(ctx context.Context) ([]string, e
 	return codes, nil
 }
 
-// ListHeldStockCodesOf は、利用者 userID の保有データにある銘柄コードを、重複なし・昇順（COLLATE "C"）で返す。
-// まとめと並べ替えは SQL（db/query/holdings.sql の ListHeldStockCodesOf）で行う。0件なら nil ではなく空のスライスを返す。
+// ListHeldStockCodesOf は、利用者 userID の保有数量が1以上の銘柄コードを、重複なし・昇順（COLLATE "C"）で返す。
+// まとめと並べ替えは SQL（db/query/trades.sql の ListHeldStockCodesOf）で行う。0件なら nil ではなく空のスライスを返す。
 func (r *HoldingRepository) ListHeldStockCodesOf(ctx context.Context, userID uuid.UUID) ([]string, error) {
 	codes, err := r.queries.ListHeldStockCodesOf(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {

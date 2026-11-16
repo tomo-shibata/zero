@@ -4,9 +4,10 @@ import pg from 'pg'
 // プラン docs/plans/stock-holdings/plan.md 4.5「E2E」:
 //   - zero_e2e は、API の webServer（task e2e:api）が起動時に cmd/migrate -recreate -seed db/seed/test.sql で作り直す。
 //   - E2E から DB を操作する pg の接続先は、zero_e2e に固定した定数にする。DB 名が zero_e2e でなければ失敗させる。
-//   - 各テストの beforeEach で TRUNCATE holdings, stock_prices と、test.sql にない銘柄マスタの削除を行ってから、
+//   - 各テストの beforeEach で TRUNCATE trades, stock_prices と、test.sql にない銘柄マスタの削除を行ってから、
 //     そのテストのデータを入れる。
-// 保有データは利用者A のものだけを入れる（E2E の API は DEV_USER_ID=利用者A で起動する。プラン 4.5）。
+// 売買履歴は利用者A のものだけを入れる（E2E の API は DEV_USER_ID=利用者A で起動する。プラン 4.5）。
+// 売買履歴への作り変え（docs/plans/trade-history/plan.md の 4.6・4.7 の PR①）で、保有データ（holdings）を売買履歴（trades）に替えた。
 
 /** E2E 専用の DB 名（プラン 4.5）。開発用 DB（zero）やテスト用 DB（zero_test_…）を誤って書き換えないよう、これ以外には接続しない。 */
 export const E2E_DATABASE_NAME = 'zero_e2e'
@@ -33,16 +34,19 @@ export const SEED_STOCK_CODES: readonly string[] = ['7203', '6758', '9984']
 /** 銘柄マスタに足す銘柄（test.sql にない銘柄。AC-18 の100銘柄など）。 */
 export type StockSeed = { code: string; name: string }
 
-/** 利用者A の保有データ1件。取得価格は浮動小数点を通さないよう、小数第1位までの文字列で渡す（例 "2500.0"。プラン 4.1）。 */
-export type HoldingSeed = { code: string; quantity: number; acquisitionPrice: string }
+/**
+ * 利用者A の売買履歴1件（プラン 4.6 の PR①）。価格（1株あたり）は浮動小数点を通さないよう文字列で渡す（例 "2500.0"）。
+ * 取引日は "YYYY-MM-DD"。trades は配列の順に入れ、その順が登録した順（trades.id の昇順）になる。
+ */
+export type TradeSeed = { code: string; side: 'buy' | 'sell'; quantity: number; price: string; tradeDate: string }
 
 /** 保存済みの終値1件。取引日は "YYYY-MM-DD"、終値は小数第1位までの文字列（例 "3000.0"）。 */
 export type StockPriceSeed = { code: string; tradingDate: string; closePrice: string }
 
-/** 1つのテストで入れるデータ。銘柄マスタ → 保有データ → 終値の順に入れる（FK のため）。 */
+/** 1つのテストで入れるデータ。銘柄マスタ → 売買履歴 → 終値の順に入れる（FK のため）。 */
 export type HoldingsTestData = {
   stocks?: StockSeed[]
-  holdings?: HoldingSeed[]
+  trades?: TradeSeed[]
   prices?: StockPriceSeed[]
 }
 
@@ -91,12 +95,12 @@ async function inE2ETransaction(
 }
 
 /**
- * 保有データと終値をすべて消し、test.sql にない銘柄マスタを消す（プラン 4.5 の beforeEach）。
+ * 売買履歴と終値をすべて消し、test.sql にない銘柄マスタを消す（プラン 4.5 の beforeEach）。
  * 利用者と test.sql の銘柄マスタ（7203・6758・9984）は残す。
  */
 export async function resetHoldingsData(): Promise<void> {
   await inE2ETransaction(async (client) => {
-    await client.query('TRUNCATE holdings, stock_prices')
+    await client.query('TRUNCATE trades, stock_prices')
     await client.query('DELETE FROM stocks WHERE code <> ALL($1::text[])', [
       SEED_STOCK_CODES,
     ])
@@ -104,13 +108,13 @@ export async function resetHoldingsData(): Promise<void> {
 }
 
 /**
- * そのテストのデータを入れる。保有データはすべて利用者A のものとして入れる。
+ * そのテストのデータを入れる。売買履歴はすべて利用者A のものとして、配列の順に入れる（その順が登録した順になる）。
  */
 export async function insertHoldingsData(
   data: HoldingsTestData,
 ): Promise<void> {
   const stocks = data.stocks ?? []
-  const holdings = data.holdings ?? []
+  const trades = data.trades ?? []
   const prices = data.prices ?? []
 
   await inE2ETransaction(async (client) => {
@@ -121,16 +125,21 @@ export async function insertHoldingsData(
         [stocks.map((s) => s.code), stocks.map((s) => s.name)],
       )
     }
-    if (holdings.length > 0) {
+    if (trades.length > 0) {
+      // unnest の WITH ORDINALITY の順（ORDER BY ord）で入れ、配列の順が trades.id の順になるようにする（プラン 4.7）。
       await client.query(
-        `INSERT INTO holdings (user_id, stock_code, quantity, acquisition_price)
-         SELECT $1::uuid, code, quantity, price
-         FROM unnest($2::text[], $3::bigint[], $4::numeric[]) AS h(code, quantity, price)`,
+        `INSERT INTO trades (user_id, stock_code, side, quantity, price, trade_date)
+         SELECT $1::uuid, t.code, t.side, t.quantity, t.price, t.trade_date
+         FROM unnest($2::text[], $3::text[], $4::bigint[], $5::numeric[], $6::date[])
+              WITH ORDINALITY AS t(code, side, quantity, price, trade_date, ord)
+         ORDER BY t.ord`,
         [
           USER_A_ID,
-          holdings.map((h) => h.code),
-          holdings.map((h) => h.quantity),
-          holdings.map((h) => h.acquisitionPrice),
+          trades.map((t) => t.code),
+          trades.map((t) => t.side),
+          trades.map((t) => t.quantity),
+          trades.map((t) => t.price),
+          trades.map((t) => t.tradeDate),
         ],
       )
     }
