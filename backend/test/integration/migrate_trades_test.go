@@ -67,13 +67,21 @@ func Test補助_5_3_マイグレーション00005はdownの後にupし直せる(
 		t.Fatalf("goose の Provider を作れない: %v", err)
 	}
 
-	// 最新は 00006（通貨と終値の精度。PR②）。先にそれを戻す。
+	// 最新は 00007（並び。カード表示の PR②）。先にそれを戻す。
 	result, err := provider.Down(t.Context())
+	if err != nil {
+		t.Fatalf("00007 を戻せない（down が通らない）: %v", err)
+	}
+	if result.Source.Version != 7 {
+		t.Fatalf("戻したマイグレーションの版: got %d, want 7（00007_create_holding_orders.sql が最新）", result.Source.Version)
+	}
+	// 次は 00006（通貨と終値の精度。売買履歴の PR②）。
+	result, err = provider.Down(t.Context())
 	if err != nil {
 		t.Fatalf("00006 を戻せない（down が通らない）: %v", err)
 	}
 	if result.Source.Version != 6 {
-		t.Fatalf("戻したマイグレーションの版: got %d, want 6（00006_add_currency.sql が最新）", result.Source.Version)
+		t.Fatalf("戻したマイグレーションの版: got %d, want 6（00006_add_currency.sql）", result.Source.Version)
 	}
 	result, err = provider.Down(t.Context())
 	if err != nil {

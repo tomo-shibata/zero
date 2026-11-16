@@ -12,6 +12,7 @@ import (
 )
 
 // ListHoldings は、利用者の保有株式一覧を返すユースケース（保有株式一覧の FR-1、要件4・6〜10）。
+// 一覧は、利用者が保存した並びで並べる（カード表示の要件26・要件27）。
 type ListHoldings struct {
 	reader HoldingsReader
 }
@@ -33,5 +34,11 @@ func (q *ListHoldings) Execute(ctx context.Context, userID uuid.UUID) (dto.Holdi
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("売買履歴から一覧を計算できません: %w", err)
 	}
+	order, err := q.reader.ListHoldingOrder(ctx, userID)
+	if err != nil {
+		return dto.HoldingsList{}, fmt.Errorf("保存した並びを読めません: %w", err)
+	}
+	// 一覧の計算（CalculateHoldings）は銘柄コードの昇順のまま。保存した並びでの並べ替えは別の純粋関数で行う（プラン 判断5）。
+	list.Holdings = ApplyHoldingOrder(list.Holdings, order)
 	return list, nil
 }

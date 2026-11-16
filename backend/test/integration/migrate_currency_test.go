@@ -66,8 +66,9 @@ func Test補助_5_3_マイグレーション00006のdownの後にupし直すと�
 	if err != nil {
 		t.Fatalf("00006 を戻せない（down が通らない）: %v", err)
 	}
-	if len(results) != 1 || results[0].Source.Version != 6 {
-		t.Fatalf("戻したマイグレーション: got %+v, want 00006 の1つだけ", results)
+	// カード表示の PR② で 00007（holding_orders）が最新になったので、00007、00006 の順に戻る。
+	if len(results) != 2 || results[0].Source.Version != 7 || results[1].Source.Version != 6 {
+		t.Fatalf("戻したマイグレーション: got %+v, want 00007 と 00006 の2つ（この順）", results)
 	}
 	if columnExists(t, pool, "stocks", "currency") {
 		t.Error("00006 を戻した後も stocks.currency が残っている")

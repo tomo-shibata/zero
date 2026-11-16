@@ -28,6 +28,11 @@ func (r fixedRowsHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dt
 	return r.rows, nil
 }
 
+// ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②。この fake は並びを使わない）。
+func (r fixedRowsHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
+	return []string{}, nil
+}
+
 // buyRow は、円の銘柄 code・name の買い1件（登録した順は id。取引日 2026-01-10）の売買履歴の行を作る。
 // 銘柄の最新の終値は closeHundredths（0.01 単位。2026-10-06）。価格（1株あたり）は 0.1円（Hundredths で 10。円の最小の単位）。
 func buyRow(id int64, code, name string, quantity, closeHundredths int64) dto.TradeRow {

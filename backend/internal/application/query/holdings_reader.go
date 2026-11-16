@@ -8,10 +8,12 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
 )
 
-// HoldingsReader は、売買履歴を読む。実装は infrastructure（persistence/read）に置き、
+// HoldingsReader は、売買履歴と保存した並びを読む。実装は infrastructure（persistence/read）に置き、
 // Query 側はこの IF だけに依存する（依存の向きを内側にするため）。
 type HoldingsReader interface {
 	// ListTradeRows は、利用者 userID の売買履歴を、1件ずつ返す（並び順は決めない）。
 	// 各行には、銘柄マスタの銘柄名と、その銘柄の最新の終値・取引日（なければ nil）を付ける。
 	ListTradeRows(ctx context.Context, userID uuid.UUID) ([]dto.TradeRow, error)
+	// ListHoldingOrder は、利用者 userID の保存した並び（銘柄コード）を、位置の順に返す。保存していなければ空のスライス（要件23・要件26）。
+	ListHoldingOrder(ctx context.Context, userID uuid.UUID) ([]string, error)
 }

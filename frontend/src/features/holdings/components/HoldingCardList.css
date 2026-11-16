@@ -24,3 +24,40 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* 並べ替えできるカード（要件17〜22）。 */
+.holding-card-list > li {
+  cursor: grab;
+  /* タッチで、押し続けるまでは縦のスクロールを妨げない（押し続けてから動かすとドラッグ。要件18）。 */
+  touch-action: manipulation;
+}
+
+/*
+ * 持ち上げているカードは、ほかのカードより手前に出し、影を濃くする。影だけだと見分けにくいので、破線の枠も付ける
+ * （forced-colors では影が消えるので、枠をシステムの強調色にする）。
+ * タッチで押し続けたときに、iOS のメニューや文字の選択が出ないようにする（要件18）。
+ */
+.holding-card-list > li.holding-card--dragging {
+  position: relative;
+  z-index: 1;
+  cursor: grabbing;
+  box-shadow: 0 14px 36px rgba(17, 24, 39, 0.22);
+  outline: 3px dashed var(--color-primary);
+  outline-offset: 2px;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (forced-colors: active) {
+  .holding-card-list > li.holding-card--dragging {
+    outline-color: Highlight;
+  }
+}
+
+/* 動きを減らす設定のときは、並べ替えの動き（dnd-kit が style に直接書く transition）を出さない。 */
+@media (prefers-reduced-motion: reduce) {
+  .holding-card-list > li {
+    transition: none !important;
+  }
+}

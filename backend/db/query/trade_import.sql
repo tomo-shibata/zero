@@ -24,7 +24,3 @@ VALUES (sqlc.arg(code), sqlc.arg(name), sqlc.arg(currency));
 UPDATE stocks
 SET name = sqlc.arg(name)
 WHERE code = sqlc.arg(code);
-
--- name: LockUserForImport :exec
--- 利用者 user_id の行をロックする（トランザクションの終わりまで）。取り込みがトランザクションの最初に行い、同じ利用者への取り込みが同時に2つ動いて、売買履歴が二重になるのを防ぐ（要件20）。
-SELECT 1 FROM users WHERE id = sqlc.arg(user_id) FOR UPDATE;

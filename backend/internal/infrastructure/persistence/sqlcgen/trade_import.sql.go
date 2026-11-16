@@ -70,16 +70,6 @@ func (q *Queries) ListStocksByCodes(ctx context.Context, codes []string) ([]Stoc
 	return items, nil
 }
 
-const lockUserForImport = `-- name: LockUserForImport :exec
-SELECT 1 FROM users WHERE id = $1 FOR UPDATE
-`
-
-// 利用者 user_id の行をロックする（トランザクションの終わりまで）。取り込みがトランザクションの最初に行い、同じ利用者への取り込みが同時に2つ動いて、売買履歴が二重になるのを防ぐ（要件20）。
-func (q *Queries) LockUserForImport(ctx context.Context, userID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, lockUserForImport, userID)
-	return err
-}
-
 const renameStock = `-- name: RenameStock :execrows
 UPDATE stocks
 SET name = $1

@@ -52,6 +52,11 @@ export type HoldingsTestData = {
   stocks?: StockSeed[]
   trades?: TradeSeed[]
   prices?: StockPriceSeed[]
+  /**
+   * 利用者A の保存済みの並び（銘柄コードを位置の順に。カード表示のプラン 4.6 PR②）。holding_orders に位置 0, 1, 2, … で入れる。
+   * 銘柄マスタに銘柄があること（FK）。保有しているかは確かめない。なければ並びは保存しない（銘柄コードの昇順で表示）。
+   */
+  order?: string[]
 }
 
 /**
@@ -99,12 +104,13 @@ async function inE2ETransaction(
 }
 
 /**
- * 売買履歴と終値をすべて消し、test.sql にない銘柄マスタを消す（プラン 4.5 の beforeEach）。
+ * 売買履歴と終値と並びをすべて消し、test.sql にない銘柄マスタを消す（プラン 4.5 の beforeEach。並びはカード表示のプラン 4.6 PR②）。
  * 利用者と test.sql の銘柄マスタ（7203・6758・9984）は残す。
+ * 並び（holding_orders）は銘柄マスタを参照するので、銘柄マスタを消す前に空にする。
  */
 export async function resetHoldingsData(): Promise<void> {
   await inE2ETransaction(async (client) => {
-    await client.query('TRUNCATE trades, stock_prices')
+    await client.query('TRUNCATE trades, stock_prices, holding_orders')
     await client.query('DELETE FROM stocks WHERE code <> ALL($1::text[])', [
       SEED_STOCK_CODES,
     ])
@@ -120,6 +126,7 @@ export async function insertHoldingsData(
   const stocks = data.stocks ?? []
   const trades = data.trades ?? []
   const prices = data.prices ?? []
+  const order = data.order ?? []
 
   await inE2ETransaction(async (client) => {
     if (stocks.length > 0) {
@@ -156,6 +163,15 @@ export async function insertHoldingsData(
           prices.map((p) => p.tradingDate),
           prices.map((p) => p.closePrice),
         ],
+      )
+    }
+    if (order.length > 0) {
+      // 配列の順が position（0, 1, 2, …）になる。
+      await client.query(
+        `INSERT INTO holding_orders (user_id, stock_code, position)
+         SELECT $1::uuid, o.code, (o.ord - 1)::int
+         FROM unnest($2::text[]) WITH ORDINALITY AS o(code, ord)`,
+        [USER_A_ID, order],
       )
     }
   })

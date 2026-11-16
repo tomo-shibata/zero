@@ -83,7 +83,7 @@ func (r *TradeImportRepository) ReplaceTrades(ctx context.Context, userID uuid.U
 func replaceTradesIn(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, userID uuid.UUID, newStocks, renamed []model.Stock, trades []model.Trade) error {
 	owner := pgtype.UUID{Bytes: userID, Valid: true}
 	// 同じ利用者への取り込みが同時に動いても、売買履歴が二重にならないよう、利用者の行をロックして順番に動かす。
-	if err := q.LockUserForImport(ctx, owner); err != nil {
+	if err := q.LockUser(ctx, owner); err != nil {
 		return fmt.Errorf("利用者の行のロックに失敗しました: %w", err)
 	}
 	if _, err := q.DeleteAllTradesOf(ctx, owner); err != nil {
@@ -103,7 +103,14 @@ func replaceTradesIn(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, userID 
 			return errors.New("銘柄名を変える銘柄が銘柄マスタにありません: " + s.Code)
 		}
 	}
-	return copyTrades(ctx, tx, owner, trades)
+	if err := copyTrades(ctx, tx, owner, trades); err != nil {
+		return err
+	}
+	// 入れ直した後に保有していない銘柄（CSV から消えた、売り切った）の並びの行を消す。また保有したときは末尾に出る（要件28。プラン 4.3「消すとき」）。
+	if err := q.DeleteHoldingOrdersNotHeld(ctx, owner); err != nil {
+		return fmt.Errorf("並びの行の削除に失敗しました: %w", err)
+	}
+	return nil
 }
 
 // copyTrades は、trades をスライスの順に、利用者 owner の売買履歴として COPY で入れる。

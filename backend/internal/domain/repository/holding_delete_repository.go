@@ -15,6 +15,7 @@ var ErrHoldingNotFound = errors.New("holding not found")
 // 利用者 ID の型に uuid.UUID を使う理由は HeldStockRepository と同じ（プラン 6章の判断7）。
 type HoldingDeleteRepository interface {
 	// DeleteAll は、利用者 userID の、銘柄 stockCode の売買履歴をすべて消す（要件18）。
-	// 他の利用者の売買履歴と、銘柄マスタ・終値は消さない。1件も消えなければ ErrHoldingNotFound を返す。
+	// 同じトランザクションで、その利用者のその銘柄の並びの行も消す（カード表示の要件28。前の位置は覚えない）。
+	// 他の利用者の売買履歴・並びと、銘柄マスタ・終値は消さない。1件も消えなければ ErrHoldingNotFound を返す。
 	DeleteAll(ctx context.Context, userID uuid.UUID, stockCode string) error
 }
