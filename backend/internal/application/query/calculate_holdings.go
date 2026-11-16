@@ -71,15 +71,51 @@ func CalculateHoldings(rows []dto.TradeRow) (dto.HoldingsList, error) {
 // 保有数量が0（売り切った銘柄）なら held が false で、ほかの戻り値は使わない。
 // valuation は、評価額（円）。価格がなければ nil。
 func calculateStock(rows []dto.TradeRow) (h dto.Holding, valuation *big.Int, held bool, err error) {
-	// 呼び出し側の rows を並べ替えないよう、写してから並べる。
-	rows = slices.Clone(rows)
-	slices.SortFunc(rows, func(a, b dto.TradeRow) int {
+	rows = sortTrades(rows)
+	quantity, acquisition, err := replayTrades(rows)
+	if err != nil {
+		return dto.Holding{}, nil, false, err
+	}
+	if quantity.Sign() == 0 {
+		return dto.Holding{}, nil, false, nil
+	}
+	if !quantity.IsInt64() {
+		return dto.Holding{}, nil, false, fmt.Errorf("保有数量: %w", ErrCalculationOverflow)
+	}
+
+	// 銘柄名と最新の終値・基準日は銘柄ごとに決まる値で、どの行も同じなので、並べた後の先頭の行から取る。
+	first := rows[0]
+	h = dto.Holding{Code: first.Code, Name: first.Name, Quantity: quantity.Int64()}
+
+	acquisitionTenths := roundHalfUp(acquisition)
+	if !acquisitionTenths.IsInt64() {
+		return dto.Holding{}, nil, false, fmt.Errorf("取得価格: %w", ErrCalculationOverflow)
+	}
+	h.AcquisitionPriceTenths = acquisitionTenths.Int64()
+
+	valuation, err = applyClosePrice(&h, first, quantity)
+	if err != nil {
+		return dto.Holding{}, nil, false, err
+	}
+	return h, valuation, true, nil
+}
+
+// sortTrades は、同じ銘柄の売買履歴 rows を写して、たどる順（取引日の昇順 → id の昇順）に並べたものを返す。
+// 呼び出し側の rows は並べ替えない。
+func sortTrades(rows []dto.TradeRow) []dto.TradeRow {
+	sorted := slices.Clone(rows)
+	slices.SortFunc(sorted, func(a, b dto.TradeRow) int {
 		// 取引日は "YYYY-MM-DD" なので、文字列の昇順が日付の古い順になる。
 		return cmp.Or(cmp.Compare(a.TradeDate, b.TradeDate), cmp.Compare(a.ID, b.ID))
 	})
+	return sorted
+}
 
-	quantity := new(big.Int)    // Q
-	acquisition := new(big.Rat) // A（0.1円単位。丸めない）
+// replayTrades は、たどる順に並べた売買履歴 rows（sortTrades の結果）を順にたどり、最後の保有数量 Q と取得価格 A（0.1円単位。丸めない）を返す。
+// 売りで Q が負になれば ErrNegativeQuantity を返す。
+func replayTrades(rows []dto.TradeRow) (quantity *big.Int, acquisition *big.Rat, err error) {
+	quantity = new(big.Int)
+	acquisition = new(big.Rat)
 	for _, r := range rows {
 		qty := big.NewInt(r.Quantity)
 		switch r.Side {
@@ -92,43 +128,32 @@ func calculateStock(rows []dto.TradeRow) (h dto.Holding, valuation *big.Int, hel
 		case dto.TradeSideSell:
 			quantity.Sub(quantity, qty)
 			if quantity.Sign() < 0 {
-				return dto.Holding{}, nil, false, ErrNegativeQuantity
+				return nil, nil, ErrNegativeQuantity
 			}
 		default:
-			return dto.Holding{}, nil, false, fmt.Errorf("知らない売買の種類 %q です", r.Side)
+			return nil, nil, fmt.Errorf("知らない売買の種類 %q です", r.Side)
 		}
 	}
-	if quantity.Sign() == 0 {
-		return dto.Holding{}, nil, false, nil
-	}
-	if !quantity.IsInt64() {
-		return dto.Holding{}, nil, false, fmt.Errorf("保有数量: %w", ErrCalculationOverflow)
-	}
+	return quantity, acquisition, nil
+}
 
-	// 銘柄名と最新の終値・基準日は銘柄ごとに決まる値で、どの行も同じなので、先頭の行から取る。
-	first := rows[0]
-	h = dto.Holding{Code: first.Code, Name: first.Name, Quantity: quantity.Int64()}
-
-	acquisitionTenths := roundHalfUp(acquisition)
-	if !acquisitionTenths.IsInt64() {
-		return dto.Holding{}, nil, false, fmt.Errorf("取得価格: %w", ErrCalculationOverflow)
+// applyClosePrice は、最新の終値 first があれば、h の現在の価格・基準日・評価額を埋め、評価額（円）を返す。
+// 価格がなければ、h の3つはどれも nil のまま、評価額も nil を返す（保有株式一覧の FR-10）。
+// 値を写してから指すのは、返した一覧を書き換えても、呼び出し側の rows が変わらないようにするため。
+func applyClosePrice(h *dto.Holding, first dto.TradeRow, quantity *big.Int) (*big.Int, error) {
+	if first.ClosePriceTenths == nil || first.PriceDate == nil {
+		return nil, nil
 	}
-	h.AcquisitionPriceTenths = acquisitionTenths.Int64()
-
-	// 価格がなければ、現在の価格・基準日・評価額はどれも nil のままにする（保有株式一覧の FR-10）。
-	// 値を写してから指すのは、返した一覧を書き換えても、呼び出し側の rows が変わらないようにするため。
-	if first.ClosePriceTenths != nil && first.PriceDate != nil {
-		h.CurrentPriceTenths = new(*first.ClosePriceTenths)
-		h.PriceDate = new(*first.PriceDate)
-		// 評価額は、保有数量で1回だけ計算し、1円未満を切り捨てる（要件11）。Quo は 0 の方向に切り捨てる（値は負にならない）。
-		valuation = new(big.Int).Mul(big.NewInt(*first.ClosePriceTenths), quantity)
-		valuation.Quo(valuation, big.NewInt(tenthsPerYen))
-		if !valuation.IsInt64() {
-			return dto.Holding{}, nil, false, fmt.Errorf("評価額: %w", ErrCalculationOverflow)
-		}
-		h.Valuation = new(valuation.Int64())
+	h.CurrentPriceTenths = new(*first.ClosePriceTenths)
+	h.PriceDate = new(*first.PriceDate)
+	// 評価額は、保有数量で1回だけ計算し、1円未満を切り捨てる（要件11）。Quo は 0 の方向に切り捨てる（値は負にならない）。
+	valuation := new(big.Int).Mul(big.NewInt(*first.ClosePriceTenths), quantity)
+	valuation.Quo(valuation, big.NewInt(tenthsPerYen))
+	if !valuation.IsInt64() {
+		return nil, fmt.Errorf("評価額: %w", ErrCalculationOverflow)
 	}
-	return h, valuation, true, nil
+	h.Valuation = new(valuation.Int64())
+	return valuation, nil
 }
 
 // roundHalfUp は、正の有理数 x を、小数第1位（整数の位）で四捨五入した整数を返す。
