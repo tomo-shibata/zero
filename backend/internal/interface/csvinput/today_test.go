@@ -1,15 +1,16 @@
-package tradecsv_test
+package csvinput_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/tomo-shibata/zero/backend/internal/interface/tradecsv"
+	"github.com/tomo-shibata/zero/backend/internal/interface/csvinput"
 )
 
 // 仕様: 要件（docs/requirements/trade-history.md）の前提「『今日』『取り込んだ日』は日本時間（Asia/Tokyo）の日付」・要件3・要件24 と、
-// プラン（docs/plans/trade-history/plan.md）4.7 の tradecsv.TodayInJapan(now time.Time) string（日本時間の今日を "YYYY-MM-DD" で返す）、
+// プラン（docs/plans/trade-history/plan.md）4.7 の TodayInJapan(now time.Time) string（日本時間の今日を "YYYY-MM-DD" で返す）、
 // 5.5 の「TodayInJapan（単体）: 2026-11-16T14:59:59Z → "2026-11-16"、2026-11-16T15:00:00Z → "2026-11-17"」。
+// 価格の CSV の登録のプラン（docs/plans/price-import/plan.md）4.3・5.2 で tradecsv から csvinput に移した（ケースの入力と期待値は変えていない）。
 
 func Test要件24_TodayInJapanは日本時間の日付を返す(t *testing.T) {
 	t.Parallel()
@@ -31,7 +32,7 @@ func Test要件24_TodayInJapanは日本時間の日付を返す(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tradecsv.TodayInJapan(tc.now); got != tc.want {
+			if got := csvinput.TodayInJapan(tc.now); got != tc.want {
 				t.Errorf("TodayInJapan(%s): got %q, want %q", tc.now.Format(time.RFC3339), got, tc.want)
 			}
 		})

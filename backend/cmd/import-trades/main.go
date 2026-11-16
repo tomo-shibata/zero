@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/config"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/database"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/write"
+	"github.com/tomo-shibata/zero/backend/internal/interface/csvinput"
 	"github.com/tomo-shibata/zero/backend/internal/interface/tradecsv"
 )
 
@@ -54,24 +54,11 @@ func run() int {
 	defer pool.Close()
 
 	return tradecsv.Run(ctx, tradecsv.RunInput{
-		CSVPath:  resolveCSVPath(*workdir, *csvPath),
+		CSVPath:  csvinput.ResolvePath(*workdir, *csvPath),
 		UserID:   *userID,
-		Today:    tradecsv.TodayInJapan(time.Now()),
+		Today:    csvinput.TodayInJapan(time.Now()),
 		Importer: command.NewImportTrades(write.NewTradeImportRepository(pool)),
 	}, os.Stdout, os.Stderr)
-}
-
-// resolveCSVPath は、-csv の値 csv を、ファイルを開くパスにする。
-// 空は空のまま返す（「CSV_FILE と USER_ID を指定してください」にするため）。絶対パスはそのまま返す。
-// 相対パスは、task を実行したディレクトリ workdir からのパスとして workdir につなぐ
-// （task は backend/ で動くので、そのままだと backend/ からのパスに読まれてしまう。プラン 6章の判断10）。
-func resolveCSVPath(workdir, csv string) string {
-	// Windows の「\data\t.csv」（ドライブの根からのパス）と「C:t.csv」（ドライブだけが付いた相対パス）は、
-	// filepath.IsAbs が false を返すが、workdir につなぐと別の場所になるので、そのまま返す。
-	if csv == "" || filepath.IsAbs(csv) || filepath.VolumeName(csv) != "" || csv[0] == '\\' || csv[0] == '/' {
-		return csv
-	}
-	return filepath.Join(workdir, csv)
 }
 
 // failBeforeRun は、Run を呼ぶ前の失敗 err を、取り込みの誤りと同じ形（先頭の行と理由の1行）で標準エラーに出し、終了コード 1 を返す。
