@@ -24,11 +24,20 @@ type fixedRowsReader struct {
 	rows     []dto.TradeRow
 	err      error
 	gotUsers []uuid.UUID
+	// order は、保存した並び（銘柄コード）。nil なら並びなし（カード表示のプラン 4.6 PR②: 既定の fake は空の並びを返す）。
+	order []string
 }
 
 func (r *fixedRowsReader) ListTradeRows(_ context.Context, userID uuid.UUID) ([]dto.TradeRow, error) {
 	r.gotUsers = append(r.gotUsers, userID)
 	return r.rows, r.err
+}
+
+func (r *fixedRowsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
+	if r.order == nil {
+		return []string{}, nil
+	}
+	return r.order, nil
 }
 
 // userA は、要件の利用者A（テストデータ）。fake は利用者で絞らないので、どの ID でもよい。

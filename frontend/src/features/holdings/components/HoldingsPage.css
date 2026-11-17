@@ -37,3 +37,13 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
 }
+
+/* 並びの保存に失敗したときの知らせ（カード表示の要件30）。カードの並びの直前に出す。 */
+.holdings-page__save-failed {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  border-inline-start: 0.25rem solid var(--color-text);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+}

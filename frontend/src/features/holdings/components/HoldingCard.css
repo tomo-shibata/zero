@@ -61,3 +61,8 @@
 .holding-card__value--unavailable {
   color: var(--color-text-muted);
 }
+
+/* 「⋯」を包む要素。この中で押したマウス・タッチでは、ドラッグを始めない（要件21）。 */
+.holding-card__menu {
+  display: inline-flex;
+}

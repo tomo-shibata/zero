@@ -125,6 +125,9 @@ func newDeps(pool *pgxpool.Pool, cfg config.API) router.Deps {
 		HoldingDeleteHandler: handler.NewHoldingDeleteHandler(
 			command.NewDeleteHolding(write.NewHoldingEditRepository(pool)),
 		),
+		HoldingOrderHandler: handler.NewHoldingOrderHandler(
+			command.NewSaveHoldingOrder(write.NewHoldingOrderRepository(pool)),
+		),
 		DevUserID:    cfg.DevUserID,
 		AllowedHosts: allowedHosts(cfg.Port),
 	}

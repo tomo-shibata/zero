@@ -62,3 +62,9 @@ ORDER BY s.code COLLATE "C";
 DELETE FROM trades
 WHERE user_id = sqlc.arg(user_id)
   AND stock_code = sqlc.arg(stock_code);
+
+-- name: LockUser :exec
+-- 利用者 user_id の行をロックする（トランザクションの終わりまで）。同じ利用者の売買履歴・並びを書き換えるトランザクションが、最初に行って順番に動くようにする。
+-- 取り込み（同じ利用者への取り込みが同時に2つ動いて売買履歴が二重になるのを防ぐ。売買履歴の要件20）・並びの保存・銘柄の削除（カード表示のプラン 4.3・判断6。
+-- 保存と削除が同時に動いても、消した銘柄の並びの行が残らないようにする）で共通に使う。
+SELECT 1 FROM users WHERE id = sqlc.arg(user_id) FOR UPDATE;

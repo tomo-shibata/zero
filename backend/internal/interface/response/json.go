@@ -11,6 +11,7 @@ import (
 // エラーの本文の error に入れるコード（プラン 4.4「API」）。
 const (
 	CodeInternalError = "internal_error" // 500。内部のエラーの内容は返さず、ログに出す
+	CodeBadRequest    = "bad_request"    // 400。並びの保存で、本文が決まりに合わない・保有している銘柄と一致しない
 	CodeForbidden     = "forbidden"      // 403
 	CodeNotFound      = "not_found"      // 404
 )

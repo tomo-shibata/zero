@@ -3,6 +3,7 @@ import type { Holding, HoldingsList } from '../../../entities/holding/model'
 import { AlertDialog } from '../../../shared/ui/AlertDialog'
 import { Spinner } from '../../../shared/ui/Spinner'
 import { useHoldings } from '../hooks/useHoldings'
+import { useHoldingsOrder } from '../hooks/useHoldingsOrder'
 import { DeleteHoldingDialog } from './DeleteHoldingDialog'
 import { HoldingCardList } from './HoldingCardList'
 import { HoldingsSummary } from './HoldingsSummary'
@@ -13,6 +14,7 @@ const PAGE_TITLE = '保有株式一覧'
 const LOADING_LABEL = '読み込み中'
 const FETCH_ERROR_MESSAGE = '保有株式の取得に失敗しました'
 const EMPTY_MESSAGE = '保有株式はありません'
+const SAVE_FAILED_MESSAGE = '並びの保存に失敗しました'
 
 /**
  * 保有株式一覧の画面（/holdings）。取得の状態（useHoldings）に応じて、表示するコンポーネントを選ぶコンテナ。
@@ -105,6 +107,8 @@ type HoldingsContentProps = {
  * 0件のときは今すぐ更新を出さない（値段の更新の要件1）。
  */
 function HoldingsContent({ list, onDelete }: HoldingsContentProps) {
+  // 並べ替えと保存（カード表示の要件23・要件30）。保存に失敗したら、カードの並びの直前に知らせる。
+  const { move, saveFailed } = useHoldingsOrder()
   if (list.holdings.length === 0) {
     return <p className="holdings-page__empty">{EMPTY_MESSAGE}</p>
   }
@@ -112,7 +116,12 @@ function HoldingsContent({ list, onDelete }: HoldingsContentProps) {
     <>
       {list.totals.length > 0 && <HoldingsSummary totals={list.totals} />}
       <PriceRefreshPanel />
-      <HoldingCardList holdings={list.holdings} onDelete={onDelete} />
+      {saveFailed && (
+        <p role="alert" className="holdings-page__save-failed">
+          {SAVE_FAILED_MESSAGE}
+        </p>
+      )}
+      <HoldingCardList holdings={list.holdings} onDelete={onDelete} onMove={move} />
     </>
   )
 }

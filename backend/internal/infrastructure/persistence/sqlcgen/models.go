@@ -8,6 +8,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type HoldingOrder struct {
+	UserID    pgtype.UUID
+	StockCode string
+	Position  int32
+}
+
 type Stock struct {
 	Code     string
 	Name     string

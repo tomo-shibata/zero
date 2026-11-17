@@ -47,6 +47,18 @@ func (r *HoldingsReader) ListTradeRows(ctx context.Context, userID uuid.UUID) ([
 	return rows, nil
 }
 
+// ListHoldingOrder は、利用者 userID の保存した並び（銘柄コード）を、位置の順に返す。保存していなければ空のスライス。
+func (r *HoldingsReader) ListHoldingOrder(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	codes, err := r.queries.ListHoldingOrder(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("保存した並びの問い合わせに失敗しました: %w", err)
+	}
+	if codes == nil {
+		return []string{}, nil
+	}
+	return codes, nil
+}
+
 // toTradeRow は、DB の1行を dto.TradeRow にする。価格は 0.01 単位の整数、取引日は "YYYY-MM-DD" にする。
 func toTradeRow(d sqlcgen.ListTradeRowsRow) (dto.TradeRow, error) {
 	side := dto.TradeSide(d.Side)

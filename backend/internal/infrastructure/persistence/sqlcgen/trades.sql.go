@@ -186,3 +186,15 @@ func (q *Queries) ListTradeRows(ctx context.Context, userID pgtype.UUID) ([]List
 	}
 	return items, nil
 }
+
+const lockUser = `-- name: LockUser :exec
+SELECT 1 FROM users WHERE id = $1 FOR UPDATE
+`
+
+// 利用者 user_id の行をロックする（トランザクションの終わりまで）。同じ利用者の売買履歴・並びを書き換えるトランザクションが、最初に行って順番に動くようにする。
+// 取り込み（同じ利用者への取り込みが同時に2つ動いて売買履歴が二重になるのを防ぐ。売買履歴の要件20）・並びの保存・銘柄の削除（カード表示のプラン 4.3・判断6。
+// 保存と削除が同時に動いても、消した銘柄の並びの行が残らないようにする）で共通に使う。
+func (q *Queries) LockUser(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, lockUser, userID)
+	return err
+}

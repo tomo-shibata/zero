@@ -341,6 +341,11 @@ func (failingHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.Tr
 	return nil, errors.New(failingReaderDetail)
 }
 
+// ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②。売買履歴の読み取りが失敗すれば、この結果は使われない）。
+func (failingHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
+	return []string{}, nil
+}
+
 // 補助 FR-22（TC-24）: エラーを返す HoldingsReader を注入した router.New に GET /api/holdings
 // → 500 と {"error":"internal_error"}（4.4。内部のエラー内容は返さない）。
 func TestFR22_TC24_API_保有データを読めないときは500とinternal_errorを返す(t *testing.T) {
@@ -357,6 +362,11 @@ type emptyHoldingsReader struct{}
 
 func (emptyHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.TradeRow, error) {
 	return []dto.TradeRow{}, nil
+}
+
+// ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②）。
+func (emptyHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
+	return []string{}, nil
 }
 
 // 補助 判断12（SR-6、S-1）: Deps.AllowedHosts にない Host（例 example.com）で /api/holdings を呼ぶと
