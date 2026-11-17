@@ -59,6 +59,12 @@ export type StockPriceSeed = { code: string; tradingDate: string; closePrice: st
  */
 export type SplitSeed = { code: string; splitDate: string; ratio: number }
 
+/**
+ * ドル円のレート1件（ドルを円にまとめる合計のプラン 4.7）。レートは全利用者で共有する（usd_jpy_rates）。
+ * 日付は "YYYY-MM-DD"、レートは 1ドルあたりの円で、小数第2位までの文字列（例 "150.00"）。
+ */
+export type UsdJpyRateSeed = { date: string; rate: string }
+
 /** 1つのテストで入れるデータ。銘柄マスタ → 売買履歴 → 終値の順に入れる（FK のため）。 */
 export type HoldingsTestData = {
   stocks?: StockSeed[]
@@ -73,6 +79,8 @@ export type HoldingsTestData = {
    * 銘柄マスタに銘柄があること（FK）。保有しているかは確かめない。なければ並びは保存しない（銘柄コードの昇順で表示）。
    */
   order?: string[]
+  /** ドル円のレート（省略できる。ドルを円にまとめる合計のプラン 4.7）。usd_jpy_rates に入れる。日付ごとに1件。 */
+  usdJpyRates?: UsdJpyRateSeed[]
 }
 
 /**
@@ -126,7 +134,8 @@ async function inE2ETransaction(
  */
 export async function resetHoldingsData(): Promise<void> {
   await inE2ETransaction(async (client) => {
-    await client.query('TRUNCATE trades, stock_prices, holding_orders, stock_splits')
+    // レートは全利用者で共有なので、前のテストのレートを残さない（ドルを円にまとめる合計のプラン 4.6）。
+    await client.query('TRUNCATE trades, stock_prices, holding_orders, stock_splits, usd_jpy_rates')
     await client.query('DELETE FROM stocks WHERE code <> ALL($1::text[])', [
       SEED_STOCK_CODES,
     ])
@@ -145,6 +154,7 @@ export async function insertHoldingsData(
   const prices = data.prices ?? []
   const splits = data.splits ?? []
   const order = data.order ?? []
+  const usdJpyRates = data.usdJpyRates ?? []
 
   await inE2ETransaction(async (client) => {
     if (stocks.length > 0) {
@@ -218,6 +228,13 @@ export async function insertHoldingsData(
          SELECT $1::uuid, o.code, (o.ord - 1)::int
          FROM unnest($2::text[]) WITH ORDINALITY AS o(code, ord)`,
         [USER_A_ID, order],
+      )
+    }
+    if (usdJpyRates.length > 0) {
+      await client.query(
+        `INSERT INTO usd_jpy_rates (rate_date, rate)
+         SELECT * FROM unnest($1::date[], $2::numeric[])`,
+        [usdJpyRates.map((r) => r.date), usdJpyRates.map((r) => r.rate)],
       )
     }
   })

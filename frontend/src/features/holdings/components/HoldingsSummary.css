@@ -7,6 +7,15 @@
   --unrealized-gain-size: 1.75rem;
 }
 
+/* 見出し「合計」と切り替えを同じ行に置く（幅 390px でも同じ行に収まる。要件1）。それより狭くて収まらないときだけ、切り替えが次の行へ折り返す。 */
+.holdings-summary__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
 .holdings-summary__title {
   margin: 0;
   font-size: 1.25rem;
@@ -19,7 +28,8 @@
   gap: 0 1.5rem;
 }
 
-.holdings-summary__currency {
+.holdings-summary__currency,
+.holdings-summary__combined {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
@@ -58,6 +68,14 @@
   margin: 0.5rem 0 0;
   font-size: 0.875rem;
   color: var(--color-text-muted);
+}
+
+/* 円にまとめた部分の、使ったレートの行（要件10）。 */
+.holdings-summary__rate {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /*

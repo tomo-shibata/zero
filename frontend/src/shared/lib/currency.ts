@@ -44,3 +44,9 @@ export const UNREALIZED_GAIN_PATTERNS: Record<Currency, RegExp> = {
  * 1つ目のグループが符号（なければ空）、2つ目が整数部、3つ目が小数部。
  */
 export const UNREALIZED_GAIN_RATE_PATTERN = /^(-?)([0-9]+)\.([0-9])$/
+
+/**
+ * ドル円のレート（1ドルあたりの円）の文字列の形。小数第2位まで、常に2桁（例 "150.00"・"1000.50"）。
+ * 1つ目のグループが整数部、2つ目が小数部。
+ */
+export const USD_JPY_RATE_PATTERN = /^([0-9]+)\.([0-9]{2})$/

@@ -35,6 +35,7 @@ const HOLDINGS_BODY = {
     },
   ],
   totals: [{ currency: 'JPY', valuation: '300000', excludesUnpriced: false, unrealizedGain: '50000', unrealizedGainRate: '20.0' }],
+  combinedTotal: null,
 }
 
 const REFRESH_BUTTON = '価格を今すぐ更新'

@@ -17,6 +17,9 @@ import { fetchHoldings } from '../../../src/features/holdings/api/fetchHoldings'
 // カード表示（要件 docs/requirements/holdings-cards.md、プラン docs/plans/holdings-cards/plan.md 4.6 の PR①・5.2）: 行と合計に
 //   unrealizedGain（円 /^-?[0-9]+$/・ドル /^-?[0-9]+\.[0-9]{2}$/）・unrealizedGainRate（/^-?[0-9]+\.[0-9]$/）を足す。
 //   行: currentPrice が null なら両方 null、null でなければ両方文字列。合計: 両方 null か両方文字列。外れたら reject。
+// ドルを円にまとめる合計（要件 docs/requirements/fx-total.md、プラン docs/plans/fx-total/plan.md 4.4・4.7 の PR②・5.2・5.3）: 応答に combinedTotal
+//   （キーは常にあり、値は null か { valuation, excludesUnpriced, unrealizedGain, unrealizedGainRate, usdJpyRate, usdJpyRateDate }）を足す。
+//   円の整数・符号付きの整数・符号付きの小数1桁・小数2桁・実在する日付に外れたら reject。既存の本文には combinedTotal: null を足した。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使い、fetchHoldings の結果（resolve した値か reject か）を確かめる。
 
 /** 一覧の API のパス（プラン 4.4）。 */
@@ -55,7 +58,30 @@ function apiExampleBody() {
       { currency: 'JPY', valuation: '450000', excludesUnpriced: true, unrealizedGain: '75000', unrealizedGainRate: '20.0' },
       { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '297.50', unrealizedGainRate: '19.8' },
     ],
+    // ドルを円にまとめる合計のプラン 4.4: キーは常にあり、値は null かオブジェクト（5.3 の PR②）。
+    combinedTotal: null as unknown,
   }
+}
+
+/** ドルを円にまとめる合計のプラン 4.4 の例（基準1 の値）。 */
+function combinedTotalExample(): Record<string, unknown> {
+  return {
+    valuation: '570000',
+    excludesUnpriced: false,
+    unrealizedGain: '94625',
+    unrealizedGainRate: '19.9',
+    usdJpyRate: '150.00',
+    usdJpyRateDate: '2026-11-14',
+  }
+}
+
+/** API の例の combinedTotal をオブジェクトにして、その1か所だけ変えた本文を作る。 */
+function exampleWithCombinedTotal(change: (combinedTotal: Record<string, unknown>) => void): unknown {
+  const body = apiExampleBody()
+  const combinedTotal = combinedTotalExample()
+  change(combinedTotal)
+  body.combinedTotal = combinedTotal
+  return body
 }
 
 /** API の例の円の行（1行目）を1か所だけ変えた本文を作る。 */
@@ -135,7 +161,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
   })
 
   test('補助 FR-22・FR-7（PR4_EC2・PR4_TC02）: 0件の応答（holdings と totals が空の配列）は、同じ形の値で resolve する', async () => {
-    const emptyBody = { holdings: [], totals: [] }
+    const emptyBody = { holdings: [], totals: [], combinedTotal: null }
     stubFetch(() => jsonResponse(emptyBody))
 
     await expect(fetchHoldings()).resolves.toEqual(emptyBody)
@@ -176,6 +202,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
         { currency: 'JPY', valuation: '450000', excludesUnpriced: true, unrealizedGain: '75000', unrealizedGainRate: '20.0' },
         { currency: 'USD', valuation: '0.00', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null },
       ],
+      combinedTotal: null,
     }
     stubFetch(() => jsonResponse(body))
 
@@ -186,6 +213,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
     const body = {
       holdings: [apiExampleBody().holdings[0]],
       totals: [{ currency: 'JPY', valuation: '450000', excludesUnpriced: false, unrealizedGain: '75000', unrealizedGainRate: '20.0' }],
+      combinedTotal: null,
     }
     stubFetch(() => jsonResponse(body))
 
@@ -209,6 +237,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
         },
       ],
       totals: [{ currency: 'USD', valuation: '0.01', excludesUnpriced: false, unrealizedGain: '0.00', unrealizedGainRate: '0.0' }],
+      combinedTotal: null,
     }
     stubFetch(() => jsonResponse(body))
 
@@ -227,10 +256,39 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
         { currency: 'JPY', valuation: '450000', excludesUnpriced: false, unrealizedGain: '-501', unrealizedGainRate: '-12.5' },
         { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '-0.01', unrealizedGainRate: '0.0' },
       ],
+      combinedTotal: null,
     }
     stubFetch(() => jsonResponse(body))
 
     await expect(fetchHoldings()).resolves.toEqual(body)
+  })
+
+  // ドルを円にまとめる合計のプラン 5.2: combinedTotal が null とオブジェクトで通る（API の境界。フロントのルールの5）。
+  test('補助（ドルを円にまとめる合計 PR②）: combinedTotal がオブジェクト（基準1 の値）の応答は、同じ形の値で resolve する', async () => {
+    const body = exampleWithCombinedTotal(() => {})
+    stubFetch(() => jsonResponse(body))
+
+    await expect(fetchHoldings()).resolves.toEqual(body)
+  })
+
+  test('補助（ドルを円にまとめる合計 PR②）: 含み損益と率が null で excludesUnpriced が true のオブジェクト（基準12）、マイナスの含み損益（基準8）、4桁のレート "1000.50" も resolve する', async () => {
+    const unavailable = exampleWithCombinedTotal((combinedTotal) => {
+      combinedTotal.valuation = '0'
+      combinedTotal.excludesUnpriced = true
+      combinedTotal.unrealizedGain = null
+      combinedTotal.unrealizedGainRate = null
+    })
+    const loss = exampleWithCombinedTotal((combinedTotal) => {
+      combinedTotal.unrealizedGain = '-10002'
+      combinedTotal.unrealizedGainRate = '-8.7'
+      combinedTotal.usdJpyRate = '1000.50'
+      combinedTotal.usdJpyRateDate = '2026-01-05'
+    })
+
+    stubFetch(() => jsonResponse(unavailable))
+    await expect(fetchHoldings()).resolves.toEqual(unavailable)
+    stubFetch(() => jsonResponse(loss))
+    await expect(fetchHoldings()).resolves.toEqual(loss)
   })
 })
 
@@ -563,6 +621,92 @@ describe('reject する応答（取得失敗 FR-22。PR4_EC2・PR4_EC3・PR4_TC0
       name: 'totals の unrealizedGainRate がない（キーごと欠けている）',
       body: exampleWithTotal(0, (total) => {
         delete total.unrealizedGainRate
+      }),
+    },
+    // ドルを円にまとめる合計（プラン 4.4・5.2）: キーは常にあり、値は null かオブジェクト。valuation は円の整数、含み損益は円の符号付きの整数、
+    // 率は符号付きの小数1桁（含み損益と同時に null）、usdJpyRate は小数2桁、usdJpyRateDate は実在する YYYY-MM-DD。外れたら reject。
+    {
+      name: 'combinedTotal のキーがない（キーは常にある）',
+      body: exampleWithTop((body) => {
+        delete body.combinedTotal
+      }),
+    },
+    {
+      name: 'combinedTotal の usdJpyRate が "150.0"（小数が1桁）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.usdJpyRate = '150.0'
+      }),
+    },
+    {
+      name: 'combinedTotal の usdJpyRate が "150"（小数がない）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.usdJpyRate = '150'
+      }),
+    },
+    {
+      name: 'combinedTotal の usdJpyRate が数の 150（文字列でない）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.usdJpyRate = 150
+      }),
+    },
+    {
+      name: 'combinedTotal の valuation が "570000.5"（小数がある。円は整数）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.valuation = '570000.5'
+      }),
+    },
+    {
+      name: 'combinedTotal の valuation が "-1"（負）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.valuation = '-1'
+      }),
+    },
+    {
+      name: 'combinedTotal の unrealizedGain が "94625.00"（小数がある。円は整数）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.unrealizedGain = '94625.00'
+      }),
+    },
+    {
+      name: 'combinedTotal の unrealizedGain だけ null（率は文字列）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.unrealizedGain = null
+      }),
+    },
+    {
+      name: 'combinedTotal の unrealizedGainRate だけ null（含み損益は文字列）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.unrealizedGainRate = null
+      }),
+    },
+    {
+      name: 'combinedTotal の unrealizedGainRate が "19.85"（小数が2桁）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.unrealizedGainRate = '19.85'
+      }),
+    },
+    {
+      name: 'combinedTotal の excludesUnpriced が文字列の "false"（真偽値でない）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.excludesUnpriced = 'false'
+      }),
+    },
+    {
+      name: 'combinedTotal の usdJpyRateDate が "2026-02-30"（実在しない日付）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.usdJpyRateDate = '2026-02-30'
+      }),
+    },
+    {
+      name: 'combinedTotal の usdJpyRateDate が "20261114"（YYYY-MM-DD でない）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        combinedTotal.usdJpyRateDate = '20261114'
+      }),
+    },
+    {
+      name: 'combinedTotal の usdJpyRateDate がない（キーごと欠けている）',
+      body: exampleWithCombinedTotal((combinedTotal) => {
+        delete combinedTotal.usdJpyRateDate
       }),
     },
   ]

@@ -1,14 +1,16 @@
 import { useId } from 'react'
-import type { CurrencyTotal } from '../../../entities/holding/model'
+import type { CombinedTotal, CurrencyTotal } from '../../../entities/holding/model'
 import type { Currency } from '../../../shared/lib/currency'
 import { formatValuation } from '../../../shared/lib/format'
+import { effectiveTotalsView } from '../lib/effectiveTotalsView'
+import type { TotalsView } from '../lib/totalsViewStorage'
+import { CombinedSummary } from './CombinedSummary'
+import { GAIN_LABEL, UNPRICED_NOTE, VALUATION_LABEL } from './summaryLabels'
+import { TotalsViewSwitch } from './TotalsViewSwitch'
 import { UnrealizedGainText } from './UnrealizedGainText'
 import './HoldingsSummary.css'
 
 const SUMMARY_TITLE = '合計'
-const GAIN_LABEL = '含み損益'
-const VALUATION_LABEL = '評価額'
-const UNPRICED_NOTE = '価格を取得できない銘柄を含みません'
 
 /** 通貨ごとの部分の見出し。 */
 const CURRENCY_NAMES: Record<Currency, string> = { JPY: '円', USD: 'ドル' }
@@ -16,24 +18,39 @@ const CURRENCY_NAMES: Record<Currency, string> = { JPY: '円', USD: 'ドル' }
 type HoldingsSummaryProps = {
   /** 通貨ごとの合計（保有のある通貨だけ。円、ドルの順）。空のときは、この部品を描画しない（呼び出し側が決める）。 */
   totals: readonly CurrencyTotal[]
+  /** 円にまとめた合計。null のときは、切り替えを出さず、通貨ごとの表示にする（要件2）。 */
+  combinedTotal: CombinedTotal | null
+  /** 覚えた表示。実際に出す表示は、combinedTotal が null なら通貨ごと（要件17。effectiveTotalsView）。 */
+  view: TotalsView
+  /** 切り替えのボタンが押されたときに、押された表示で呼ばれる。 */
+  onViewChange: (view: TotalsView) => void
 }
 
 /**
- * 保有株式全体の合計の欄（要件11〜16）。為替の換算はしない。
- * 見出し「合計」（h2）の下に、通貨ごとの部分を渡された順（円、ドル）に置く。
+ * 保有株式全体の合計の欄（カード表示の要件12〜16、ドルを円でまとめる合計の要件1〜要件5）。
+ * 見出し「合計」（h2）の行の右に切り替え（combinedTotal があるときだけ）を置き、その下に、
+ * 通貨ごとの部分を渡された順（円、ドル）に置くか、円にまとめた部分を置く。
  */
-export function HoldingsSummary({ totals }: HoldingsSummaryProps) {
+export function HoldingsSummary({ totals, combinedTotal, view, onViewChange }: HoldingsSummaryProps) {
   const titleId = useId()
+  const shownView = effectiveTotalsView(view, combinedTotal)
   return (
     <section aria-labelledby={titleId} className="holdings-summary">
-      <h2 id={titleId} className="holdings-summary__title">
-        {SUMMARY_TITLE}
-      </h2>
-      <div className="holdings-summary__currencies">
-        {totals.map((total) => (
-          <CurrencySummary key={total.currency} total={total} />
-        ))}
+      <div className="holdings-summary__header">
+        <h2 id={titleId} className="holdings-summary__title">
+          {SUMMARY_TITLE}
+        </h2>
+        {combinedTotal !== null && <TotalsViewSwitch view={shownView} onChange={onViewChange} />}
       </div>
+      {combinedTotal !== null && shownView === 'combinedYen' ? (
+        <CombinedSummary combinedTotal={combinedTotal} />
+      ) : (
+        <div className="holdings-summary__currencies">
+          {totals.map((total) => (
+            <CurrencySummary key={total.currency} total={total} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }

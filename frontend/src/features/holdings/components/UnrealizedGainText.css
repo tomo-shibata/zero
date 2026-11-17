@@ -6,15 +6,11 @@
   font-variant-numeric: tabular-nums;
   /* 「取得できません」など、2つに分けない文言も、置く場所の幅からはみ出さずに折り返す。 */
   overflow-wrap: anywhere;
-}
-
-/*
- * 金額と率はそれぞれ1かたまりにして、狭い幅の改行を2つの間だけにする（「ドル」の「ド」と「ル」の間などで割れない）。
- * inline-block にして、1つが幅に入りきらない長い値のときだけ、中で折り返す（overflow-wrap）。
- */
-.unrealized-gain__part {
-  display: inline-block;
-  overflow-wrap: anywhere;
+  /*
+   * 狭い幅の改行を、金額と率の間（TSX の <wbr />）だけにする（「ドル」の「ド」と「ル」の間などで割れない）。
+   * 1つが幅に入りきらない長い値のときだけ、overflow-wrap で中で折り返す。
+   */
+  word-break: keep-all;
   /*
    * 率が2行目に回ったとき、行頭の全角の「（」の左の空きで右に下がって見えないよう、行頭の括弧だけを詰める。
    * 対応しないブラウザでは無視されるだけ（今のまま）。

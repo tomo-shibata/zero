@@ -6,6 +6,7 @@ import {
   UNIT_PRICE_PATTERNS,
   UNREALIZED_GAIN_PATTERNS,
   UNREALIZED_GAIN_RATE_PATTERN,
+  USD_JPY_RATE_PATTERN,
   VALUATION_PATTERNS,
 } from '../../../shared/lib/currency'
 
@@ -120,9 +121,38 @@ const currencyTotalSchema = z
     }
   })
 
+/**
+ * 円にまとめた合計。評価額は円の整数、含み損益は円の符号付きの整数、レートは小数2桁、日付は実在する YYYY-MM-DD。
+ * 含み損益と率は、両方とも null か両方とも文字列（片方だけ null は reject する）。
+ */
+const combinedTotalSchema = z
+  .object({
+    valuation: z.string(),
+    excludesUnpriced: z.boolean(),
+    unrealizedGain: z.string().nullable(),
+    unrealizedGainRate: z.string().nullable(),
+    usdJpyRate: z.string().regex(USD_JPY_RATE_PATTERN, 'usdJpyRate の形が正しくありません'),
+    usdJpyRateDate: z.iso.date(),
+  })
+  .superRefine((total, context) => {
+    checkAmountFormat(context, VALUATION_PATTERNS, 'JPY', total.valuation, 'valuation')
+    const { unrealizedGain: gain, unrealizedGainRate: rate } = total
+    if (gain !== null && rate !== null) {
+      checkGainFormat(context, 'JPY', gain, rate)
+    } else if (gain !== null || rate !== null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'unrealizedGain と unrealizedGainRate は、両方とも null か両方とも文字列でなければなりません',
+        path: ['unrealizedGainRate'],
+      })
+    }
+  })
+
 const holdingsListSchema = z.object({
   holdings: z.array(z.union([pricedHoldingSchema, unpricedHoldingSchema])),
   totals: z.array(currencyTotalSchema),
+  // キーは常にある（切り替えを出さないときは null）。
+  combinedTotal: combinedTotalSchema.nullable(),
 })
 
 /**

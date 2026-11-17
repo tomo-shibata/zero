@@ -17,6 +17,7 @@ import { useHoldings } from '../../../src/features/holdings/hooks/useHoldings'
 // 一覧の取り直しが起きるのは、一覧を表示している画面（useHoldings の observer がある）のときなので、同じ QueryClient で useHoldings も動かす。
 
 const TWO_HOLDINGS_BODY = {
+  combinedTotal: null,
   holdings: [
     { code: '6758', name: 'ソニーグループ', currency: 'JPY', quantity: 50, acquisitionPrice: '3200.0', currentPrice: null, priceDate: null, valuation: null, unrealizedGain: null, unrealizedGainRate: null },
     { code: '7203', name: 'トヨタ自動車', currency: 'JPY', quantity: 400, acquisitionPrice: '2750.0', currentPrice: null, priceDate: null, valuation: null, unrealizedGain: null, unrealizedGainRate: null },
@@ -24,6 +25,7 @@ const TWO_HOLDINGS_BODY = {
   totals: [{ currency: 'JPY', valuation: '0', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null }],
 }
 const ONE_HOLDING_BODY = {
+  combinedTotal: null,
   holdings: [TWO_HOLDINGS_BODY.holdings[0]],
   totals: [{ currency: 'JPY', valuation: '0', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null }],
 }

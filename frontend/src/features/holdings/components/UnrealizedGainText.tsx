@@ -30,16 +30,17 @@ export function UnrealizedGainText({ currency, gain, rate }: UnrealizedGainTextP
   const { amount, rateText } = splitAmountAndRate(formatUnrealizedGain(currency, gain, rate))
   return (
     <p className="unrealized-gain" data-tone={unrealizedGainTone(gain)}>
-      <span className="unrealized-gain__part">{amount}</span>
-      <span className="unrealized-gain__part">{rateText}</span>
+      {amount}
+      <wbr />
+      {rateText}
     </p>
   )
 }
 
 /**
  * 「+75,000円（+20.0%）」を、金額「+75,000円」と率「（+20.0%）」に分ける（最初の「（」の前と後ろ）。
- * 狭い幅で折り返すとき、改行を金額と率の間だけにして、「ドル」の途中などで割れないようにするため。
- * 2つを続けた文字列は元の文字列と同じ（読み上げ・textContent は変わらない）。
+ * 狭い幅で折り返すとき、改行を金額と率の間（<wbr />）だけにして、「ドル」の途中などで割れないようにするため（CSS の word-break: keep-all と合わせる）。
+ * 金額と率は、1つの要素の直下の文字として並べる（2つを続けた文字列は元の文字列と同じ。読み上げ・textContent・文字での検索は変わらない）。
  */
 function splitAmountAndRate(text: string): { amount: string; rateText: string } {
   const index = text.indexOf('（')
