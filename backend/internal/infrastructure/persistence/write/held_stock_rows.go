@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tomo-shibata/zero/backend/internal/domain/model"
@@ -32,6 +33,21 @@ func toTrade(code, side string, quantity int64, tradeDate pgtype.Date) (model.Tr
 		return model.Trade{}, fmt.Errorf("売買履歴（銘柄 %q）の取引日: %w", code, err)
 	}
 	return model.Trade{StockCode: code, Side: model.TradeSide(side), Quantity: quantity, TradeDate: date}, nil
+}
+
+// groupTradesByUser は、全利用者の売買履歴の行 rows を、利用者ごとの model.Trade に振り分ける。
+// rows は登録した順（id の昇順）なので、利用者ごとに分けても、その利用者の売買履歴は登録した順のまま。
+func groupTradesByUser(rows []sqlcgen.ListTradesOfAllUsersRow) (map[uuid.UUID][]model.Trade, error) {
+	byUser := make(map[uuid.UUID][]model.Trade)
+	for _, row := range rows {
+		t, err := toTrade(row.StockCode, row.Side, row.Quantity, row.TradeDate)
+		if err != nil {
+			return nil, err
+		}
+		id := uuid.UUID(row.UserID.Bytes)
+		byUser[id] = append(byUser[id], t)
+	}
+	return byUser, nil
 }
 
 // toStockSplit は、分割の行から model.StockSplit を作る。

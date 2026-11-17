@@ -103,3 +103,30 @@ func (q *Queries) ListHoldingOrder(ctx context.Context, userID pgtype.UUID) ([]s
 	}
 	return items, nil
 }
+
+const listHoldingOrderUserIDs = `-- name: ListHoldingOrderUserIDs :many
+SELECT DISTINCT user_id
+FROM holding_orders
+ORDER BY user_id
+`
+
+// 並びの行を持つ利用者の ID を、昇順で返す。分割の取り込みが、全利用者の並びから保有していない銘柄の行を消すために使う（株式分割のプラン 4.4）。
+func (q *Queries) ListHoldingOrderUserIDs(ctx context.Context) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listHoldingOrderUserIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

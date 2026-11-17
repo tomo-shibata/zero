@@ -30,3 +30,9 @@ WHERE user_id = sqlc.arg(user_id)
 DELETE FROM holding_orders
 WHERE user_id = sqlc.arg(user_id)
   AND NOT (stock_code = ANY(coalesce(sqlc.arg(codes)::text[], '{}')));
+
+-- name: ListHoldingOrderUserIDs :many
+-- 並びの行を持つ利用者の ID を、昇順で返す。分割の取り込みが、全利用者の並びから保有していない銘柄の行を消すために使う（株式分割のプラン 4.4）。
+SELECT DISTINCT user_id
+FROM holding_orders
+ORDER BY user_id;

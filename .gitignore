@@ -29,7 +29,7 @@ playwright/.cache/
 # 個人のデータを入れた seed（backend/db/seed/*.local.sql。task db:seed SEED_FILE=… で流す）
 *.local.sql
 
-# 自分の売買履歴・価格を書いた CSV（task trades:import / prices:import CSV_FILE=… で使う。見本は backend/db/seed/trades.example.csv・prices.example.csv）
+# 自分の売買履歴・価格・分割を書いた CSV（task trades:import / prices:import / splits:import CSV_FILE=… で使う。見本は backend/db/seed/trades.example.csv・prices.example.csv・splits.example.csv）
 *.local.csv
 
 # OS / エディタ
