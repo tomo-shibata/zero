@@ -26,6 +26,13 @@ type fixedRowsReader struct {
 	gotUsers []uuid.UUID
 	// order は、保存した並び（銘柄コード）。nil なら並びなし（カード表示のプラン 4.6 PR②: 既定の fake は空の並びを返す）。
 	order []string
+	// rate・rateErr は、LatestUsdJpyRate が返すレートとエラー（指定しなければ nil, nil。ドルを円にまとめるプラン 5.3 PR①）。
+	rate    *dto.UsdJpyRate
+	rateErr error
+}
+
+func (r *fixedRowsReader) LatestUsdJpyRate(context.Context) (*dto.UsdJpyRate, error) {
+	return r.rate, r.rateErr
 }
 
 func (r *fixedRowsReader) ListTradeRows(_ context.Context, userID uuid.UUID) ([]dto.TradeRow, error) {
@@ -141,5 +148,52 @@ func Test補助_保有数量が途中で負になる売買履歴ならExecuteは
 				t.Errorf("Execute: got err %v, want ErrNegativeQuantity\n返った一覧: %+v", err, got)
 			}
 		})
+	}
+}
+
+// ドルを円にまとめるプラン 5.2・4.1: 偽の reader のレートが CalculateHoldings に渡る（CombinedTotal.Rate が同じ）。
+// 売買履歴は 7203「買 2,500円 100株」・AAPL「買 150.25ドル 10株」（どちらも価格あり）、レートは 2026-11-14 150.00円（15000）
+// → 評価額は 570,000円（57000000。要件定義の基準1）。
+func Test補助_Executeは読み取りのレートを円にまとめる計算に渡す(t *testing.T) {
+	t.Parallel()
+	rate := &dto.UsdJpyRate{RateDate: "2026-11-14", RateHundredths: 15000}
+	reader := &fixedRowsReader{
+		rows: []dto.TradeRow{
+			toyota().buy(1, 100, 250000, "2026-01-10"),
+			apple().buy(2, 10, 15025, "2026-01-10"),
+		},
+		rate: rate,
+	}
+	q := query.NewListHoldings(reader)
+
+	got, err := q.Execute(t.Context(), userA)
+
+	if err != nil {
+		t.Fatalf("Execute: got err %v, want nil", err)
+	}
+	if got.CombinedTotal == nil {
+		t.Fatalf("CombinedTotal: got nil, want 値あり")
+	}
+	if got.CombinedTotal.Rate != *rate {
+		t.Errorf("CombinedTotal.Rate: got %+v, want %+v", got.CombinedTotal.Rate, *rate)
+	}
+	if got.CombinedTotal.ValuationHundredths != 57000000 {
+		t.Errorf("CombinedTotal.ValuationHundredths: got %d, want 57000000", got.CombinedTotal.ValuationHundredths)
+	}
+}
+
+// ドルを円にまとめるプラン 5.2・4.1: LatestUsdJpyRate がエラーなら、Execute もそのエラーを（包んで）返す。
+func Test補助_Executeはレートの読み取りが失敗したらエラーを返す(t *testing.T) {
+	t.Parallel()
+	errRate := errors.New("fake: レートの読み取りに失敗")
+	q := query.NewListHoldings(&fixedRowsReader{
+		rows:    []dto.TradeRow{toyota().buy(1, 100, 250000, "2026-01-10")},
+		rateErr: errRate,
+	})
+
+	_, err := q.Execute(t.Context(), userA)
+
+	if !errors.Is(err, errRate) {
+		t.Errorf("Execute: got err %v, want レートの読み取りのエラーを包んだもの", err)
 	}
 }

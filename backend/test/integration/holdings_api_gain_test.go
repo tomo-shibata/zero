@@ -50,7 +50,8 @@ func Testカード表示の基準14_API_合計は通貨ごとにカードの含�
 			 "unrealizedGain": "45000", "unrealizedGainRate": "15.5"},
 			{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false,
 			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
-		]
+		],
+		"combinedTotal": null
 	}`)
 }
 
@@ -89,6 +90,7 @@ func Testカード表示の基準15_API_価格のない銘柄は合計の含み�
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
 			{"currency": "USD", "valuation": "0.00", "excludesUnpriced": true,
 			 "unrealizedGain": null, "unrealizedGainRate": null}
-		]
+		],
+		"combinedTotal": null
 	}`)
 }
