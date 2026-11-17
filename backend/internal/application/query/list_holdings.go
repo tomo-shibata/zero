@@ -11,7 +11,7 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
 )
 
-// ListHoldings は、利用者の保有株式一覧を返すユースケース（保有株式一覧の FR-1、要件4・6〜10）。
+// ListHoldings は、利用者の保有株式一覧を返すユースケース（保有株式一覧の FR-1、要件4・6〜10）。売買履歴に分割を混ぜて計算する（株式分割の要件4〜8）。
 // 一覧は、利用者が保存した並びで並べる（カード表示の要件26・要件27）。
 type ListHoldings struct {
 	reader HoldingsReader
@@ -30,7 +30,11 @@ func (q *ListHoldings) Execute(ctx context.Context, userID uuid.UUID) (dto.Holdi
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("売買履歴を読めません: %w", err)
 	}
-	list, err := CalculateHoldings(rows)
+	splits, err := q.reader.ListStockSplits(ctx, userID)
+	if err != nil {
+		return dto.HoldingsList{}, fmt.Errorf("分割を読めません: %w", err)
+	}
+	list, err := CalculateHoldings(rows, splits)
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("売買履歴から一覧を計算できません: %w", err)
 	}

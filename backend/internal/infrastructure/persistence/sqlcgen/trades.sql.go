@@ -32,88 +32,6 @@ func (q *Queries) DeleteTradesOf(ctx context.Context, arg DeleteTradesOfParams) 
 	return result.RowsAffected(), nil
 }
 
-const listHeldStocks = `-- name: ListHeldStocks :many
-SELECT s.code AS stock_code, s.currency
-FROM (
-    SELECT user_id, stock_code
-    FROM trades
-    GROUP BY user_id, stock_code
-    HAVING sum(CASE side WHEN 'buy' THEN quantity ELSE -quantity END) >= 1
-) AS held
-JOIN stocks AS s ON s.code = held.stock_code
-GROUP BY s.code, s.currency
-ORDER BY s.code COLLATE "C"
-`
-
-type ListHeldStocksRow struct {
-	StockCode string
-	Currency  string
-}
-
-// 誰かの保有数量（買いの株数の合計 − 売りの株数の合計）が1以上の銘柄を、銘柄コードと通貨で、重複なし・コードの昇順で返す。
-// 価格の取得処理が、終値を取得する銘柄を決め、取得した終値の精度を通貨で確かめるために使う（要件5・要件16）。売り切った銘柄は含めない。
-// 保有数量は利用者と銘柄ごとに求め（HAVING）、そのうえで銘柄コードの重複を GROUP BY でまとめる
-// （SELECT DISTINCT だと、ORDER BY に COLLATE を付けた式を書けないため）。通貨は銘柄マスタの値で、銘柄コードごとに1つに決まる。
-// 並びは COLLATE "C"（バイト順）にして、Go の文字列比較の昇順と揃える。
-// DB の既定の照合順序（en_US.utf8）のままだと、例えば 130a が 130A より前に来て食い違うため。
-func (q *Queries) ListHeldStocks(ctx context.Context) ([]ListHeldStocksRow, error) {
-	rows, err := q.db.Query(ctx, listHeldStocks)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListHeldStocksRow
-	for rows.Next() {
-		var i ListHeldStocksRow
-		if err := rows.Scan(&i.StockCode, &i.Currency); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listHeldStocksOf = `-- name: ListHeldStocksOf :many
-SELECT s.code AS stock_code, s.currency
-FROM trades AS t
-JOIN stocks AS s ON s.code = t.stock_code
-WHERE t.user_id = $1
-GROUP BY s.code, s.currency
-HAVING sum(CASE t.side WHEN 'buy' THEN t.quantity ELSE -t.quantity END) >= 1
-ORDER BY s.code COLLATE "C"
-`
-
-type ListHeldStocksOfRow struct {
-	StockCode string
-	Currency  string
-}
-
-// 利用者 user_id の保有数量（買いの株数の合計 − 売りの株数の合計）が1以上の銘柄を、銘柄コードと通貨で、重複なし・コードの昇順で返す。
-// 価格の今すぐ更新が、その利用者の保有銘柄だけの終値を取得するために使う（要件5・要件16）。
-// ListHeldStocks（全利用者）と同じ理由で、並びは COLLATE "C"（バイト順）にする。
-func (q *Queries) ListHeldStocksOf(ctx context.Context, userID pgtype.UUID) ([]ListHeldStocksOfRow, error) {
-	rows, err := q.db.Query(ctx, listHeldStocksOf, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListHeldStocksOfRow
-	for rows.Next() {
-		var i ListHeldStocksOfRow
-		if err := rows.Scan(&i.StockCode, &i.Currency); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTradeRows = `-- name: ListTradeRows :many
 SELECT
     t.id,
@@ -176,6 +94,98 @@ func (q *Queries) ListTradeRows(ctx context.Context, userID pgtype.UUID) ([]List
 			&i.TradeDate,
 			&i.ClosePrice,
 			&i.TradingDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTradesOfAllUsers = `-- name: ListTradesOfAllUsers :many
+SELECT t.user_id, t.stock_code, s.currency, t.side, t.quantity, t.trade_date
+FROM trades AS t
+JOIN stocks AS s ON s.code = t.stock_code
+ORDER BY t.id
+`
+
+type ListTradesOfAllUsersRow struct {
+	UserID    pgtype.UUID
+	StockCode string
+	Currency  string
+	Side      string
+	Quantity  int64
+	TradeDate pgtype.Date
+}
+
+// 全利用者の売買履歴を、銘柄の通貨を付けて、登録した順（id の昇順）に返す。
+// 価格の取得処理が、誰かが保有している銘柄（保有数量が1以上の銘柄）を決めるために使う（売買履歴の要件5・要件16）。
+// 保有数量は分割を数えないと誤る（株式分割の要件4）ので、SQL では集計せず、Go の側が利用者ごとに分割も混ぜて
+// domain の HeldStockCodes で判定する（プラン 4.3。判断1）。価格・id は判定に要らないので読まない。
+func (q *Queries) ListTradesOfAllUsers(ctx context.Context) ([]ListTradesOfAllUsersRow, error) {
+	rows, err := q.db.Query(ctx, listTradesOfAllUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTradesOfAllUsersRow
+	for rows.Next() {
+		var i ListTradesOfAllUsersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.StockCode,
+			&i.Currency,
+			&i.Side,
+			&i.Quantity,
+			&i.TradeDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTradesOfUser = `-- name: ListTradesOfUser :many
+SELECT t.stock_code, s.currency, t.side, t.quantity, t.trade_date
+FROM trades AS t
+JOIN stocks AS s ON s.code = t.stock_code
+WHERE t.user_id = $1
+ORDER BY t.id
+`
+
+type ListTradesOfUserRow struct {
+	StockCode string
+	Currency  string
+	Side      string
+	Quantity  int64
+	TradeDate pgtype.Date
+}
+
+// 利用者 user_id の売買履歴を、銘柄の通貨を付けて、登録した順（id の昇順）に返す。
+// 価格の今すぐ更新と、並びの保存が、その利用者の保有している銘柄を決めるために使う（売買履歴の要件16、カード表示の要件23）。
+// ListTradesOfAllUsers と同じ理由で、保有数量の判定は Go の側（domain の HeldStockCodes）で行う。
+func (q *Queries) ListTradesOfUser(ctx context.Context, userID pgtype.UUID) ([]ListTradesOfUserRow, error) {
+	rows, err := q.db.Query(ctx, listTradesOfUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTradesOfUserRow
+	for rows.Next() {
+		var i ListTradesOfUserRow
+		if err := rows.Scan(
+			&i.StockCode,
+			&i.Currency,
+			&i.Side,
+			&i.Quantity,
+			&i.TradeDate,
 		); err != nil {
 			return nil, err
 		}

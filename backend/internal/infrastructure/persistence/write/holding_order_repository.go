@@ -44,13 +44,10 @@ func (r *HoldingOrderRepository) ReplaceHoldingOrder(ctx context.Context, userID
 	if err := q.LockUser(ctx, owner); err != nil {
 		return fmt.Errorf("利用者の行のロックに失敗しました: %w", err)
 	}
-	held, err := q.ListHeldStocksOf(ctx, owner)
+	// 保有している銘柄は、売買履歴と分割を読んで、domain の HeldStockCodes で決める（プラン 4.3）。
+	heldCodes, _, err := heldOfUser(ctx, q, owner)
 	if err != nil {
 		return fmt.Errorf("保有している銘柄の問い合わせに失敗しました: %w", err)
-	}
-	heldCodes := make([]string, 0, len(held))
-	for _, h := range held {
-		heldCodes = append(heldCodes, h.StockCode)
 	}
 	order, err := build(heldCodes)
 	if err != nil {

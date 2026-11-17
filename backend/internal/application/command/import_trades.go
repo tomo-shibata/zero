@@ -93,7 +93,13 @@ func (u *ImportTrades) Execute(ctx context.Context, userID uuid.UUID, rows []Imp
 		return ImportResult{}, err
 	}
 
-	if problems := findProblems(rows, first, master); len(problems) > 0 {
+	// 多すぎる売りは、登録済みの分割を混ぜた保有数量で確かめる（株式分割の要件7）。分割は書き込みのトランザクションの外で読む。
+	splits, err := u.repo.FindStockSplits(ctx, slices.Collect(maps.Keys(first)))
+	if err != nil {
+		return ImportResult{}, err
+	}
+
+	if problems := findProblems(rows, first, master, splits); len(problems) > 0 {
 		return ImportResult{}, &ImportValidationError{Problems: problems}
 	}
 
@@ -115,9 +121,9 @@ func firstRowByCode(rows []ImportRow) map[string]ImportRow {
 	return first
 }
 
-// findProblems は、行どうしの誤り（CSV の中の銘柄名・通貨の食い違い、銘柄マスタとの通貨の食い違い、多すぎる売り）を、
+// findProblems は、行どうしの誤り（CSV の中の銘柄名・通貨の食い違い、銘柄マスタとの通貨の食い違い、splits を混ぜて数えた多すぎる売り）を、
 // 行番号の昇順・同じ行では Kind の昇順で返す。
-func findProblems(rows []ImportRow, first map[string]ImportRow, master map[string]model.Stock) []ImportProblem {
+func findProblems(rows []ImportRow, first map[string]ImportRow, master map[string]model.Stock, splits []model.StockSplit) []ImportProblem {
 	var problems []ImportProblem
 	for _, row := range rows {
 		code := row.Stock.Code
@@ -134,7 +140,7 @@ func findProblems(rows []ImportRow, first map[string]ImportRow, master map[strin
 		}
 	}
 
-	for _, o := range model.FindOversells(tradesOf(rows)) {
+	for _, o := range model.FindOversells(tradesOf(rows), splits) {
 		problems = append(problems, ImportProblem{Line: rows[o.Index].Line, Kind: ProblemOversell, Held: o.Held, Sold: o.Sold})
 	}
 

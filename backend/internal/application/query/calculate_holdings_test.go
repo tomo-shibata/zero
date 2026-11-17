@@ -106,7 +106,7 @@ func (s stockInfo) sell(id, quantity, priceHundredths int64, tradeDate string) d
 // calculate は CalculateHoldings を呼び、エラーならテストを止める。
 func calculate(t *testing.T, rows []dto.TradeRow) dto.HoldingsList {
 	t.Helper()
-	list, err := query.CalculateHoldings(rows)
+	list, err := query.CalculateHoldings(rows, nil)
 	if err != nil {
 		t.Fatalf("CalculateHoldings: got err %v, want nil", err)
 	}
@@ -743,7 +743,7 @@ func Test補助_途中で保有数量が負になる売買履歴はErrNegativeQu
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := query.CalculateHoldings(tc.rows)
+			_, err := query.CalculateHoldings(tc.rows, nil)
 
 			if !errors.Is(err, query.ErrNegativeQuantity) {
 				t.Errorf("CalculateHoldings: got err %v, want ErrNegativeQuantity", err)
@@ -761,7 +761,7 @@ func Test補助_正しい銘柄と負になる銘柄が混ざるときも一覧�
 		toyota().sell(2, 10, 250000, "2026-01-10"),
 	}
 
-	_, err := query.CalculateHoldings(rows)
+	_, err := query.CalculateHoldings(rows, nil)
 
 	if !errors.Is(err, query.ErrNegativeQuantity) {
 		t.Errorf("CalculateHoldings: got err %v, want ErrNegativeQuantity（正しい銘柄の行だけを返さない）", err)
@@ -812,7 +812,7 @@ func Test補助_最後の値がint64に収まらなければErrCalculationOverfl
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := query.CalculateHoldings(tc.rows)
+			_, err := query.CalculateHoldings(tc.rows, nil)
 
 			if !errors.Is(err, query.ErrCalculationOverflow) {
 				t.Errorf("CalculateHoldings: got err %v, want ErrCalculationOverflow", err)

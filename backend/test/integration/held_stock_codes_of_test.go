@@ -102,7 +102,7 @@ func Test補助_要件16_ListHeldStockCodesOfはその利用者の保有銘柄�
 	})
 
 	// 補助（プランの 130A・1301 に足したデータ）: COLLATE "C"（バイト順）では大文字 130A（0x41）が小文字 130a（0x61）より前。
-	// DB の既定の照合順序（en_US.utf8）のままなら 130a が 130A より前に来る（db/query/trades.sql の ListHeldStocks・ListHeldStocksOf のコメント）。
+	// DB の既定の照合順序（en_US.utf8）のままなら 130a が 130A より前に来る（persistence/write/holding_repository.go の heldStocksOf。Go の文字列比較で並べる）。
 	// プランの 130A と 1301 の組は、どちらの照合順序でも同じ順になるので、これを足して COLLATE "C" を見分ける。
 	t.Run("大文字の130Aは小文字の130aより前（バイト順）", func(t *testing.T) {
 		t.Parallel()

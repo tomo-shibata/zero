@@ -341,6 +341,11 @@ func (failingHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.Tr
 	return nil, errors.New(failingReaderDetail)
 }
 
+// ListStockSplits は空を返す（株式分割のプラン 4.8 PR①。売買履歴の読み取りが失敗すれば、この結果は使われない）。
+func (failingHoldingsReader) ListStockSplits(context.Context, uuid.UUID) ([]dto.StockSplitRow, error) {
+	return []dto.StockSplitRow{}, nil
+}
+
 // ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②。売買履歴の読み取りが失敗すれば、この結果は使われない）。
 func (failingHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
 	return []string{}, nil
@@ -362,6 +367,11 @@ type emptyHoldingsReader struct{}
 
 func (emptyHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dto.TradeRow, error) {
 	return []dto.TradeRow{}, nil
+}
+
+// ListStockSplits は空を返す（株式分割のプラン 4.8 PR①）。
+func (emptyHoldingsReader) ListStockSplits(context.Context, uuid.UUID) ([]dto.StockSplitRow, error) {
+	return []dto.StockSplitRow{}, nil
 }
 
 // ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②）。

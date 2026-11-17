@@ -56,6 +56,15 @@ func (r *TradeImportRepository) FindStocks(ctx context.Context, codes []string) 
 	return stocks, nil
 }
 
+// FindStockSplits は、codes の銘柄の分割を返す（並び順は決めない）。銘柄マスタにない銘柄の分割も返す（銘柄マスタを見ない）。なければ空のスライスを返す。
+func (r *TradeImportRepository) FindStockSplits(ctx context.Context, codes []string) ([]model.StockSplit, error) {
+	rows, err := r.queries.ListStockSplitsByCodes(ctx, codes)
+	if err != nil {
+		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
+	}
+	return toStockSplits(rows)
+}
+
 // ReplaceTrades は、1つのトランザクションで、利用者の売買履歴をすべて消し、newStocks を足し、renamed の銘柄名を変え、
 // trades をスライスの順に COPY で入れる（COPY は送った順に行を入れるので、先の行ほど trades.id が小さい。要件8）。
 // 途中で失敗したら、コミットせずに元に戻す（何も変わらない）。
@@ -107,7 +116,12 @@ func replaceTradesIn(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, userID 
 		return err
 	}
 	// 入れ直した後に保有していない銘柄（CSV から消えた、売り切った）の並びの行を消す。また保有したときは末尾に出る（要件28。プラン 4.3「消すとき」）。
-	if err := q.DeleteHoldingOrdersNotHeld(ctx, owner); err != nil {
+	// 保有している銘柄は、入れた売買履歴とその銘柄の分割から、domain の HeldStockCodes で決める（株式分割のプラン 4.3。IF が分割を受け取らないので、ここで読み直す）。
+	held, err := heldCodesOfImported(ctx, q, trades)
+	if err != nil {
+		return err
+	}
+	if err := q.DeleteHoldingOrdersExcept(ctx, sqlcgen.DeleteHoldingOrdersExceptParams{UserID: owner, Codes: held}); err != nil {
 		return fmt.Errorf("並びの行の削除に失敗しました: %w", err)
 	}
 	return nil

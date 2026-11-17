@@ -47,6 +47,25 @@ func (r *HoldingsReader) ListTradeRows(ctx context.Context, userID uuid.UUID) ([
 	return rows, nil
 }
 
+// ListStockSplits は、登録済みの分割をすべて返す（分割1件は1回だけ）。0件のときは空のスライスを返す。
+// userID の売買履歴では絞らない。ListTradeRows とは別の読み取りなので、間に取り込みが入ると、売買履歴で絞った分割が
+// 読んだ売買履歴と食い違い、一覧が誤りになるため。rows にない銘柄の分割は、CalculateHoldings が使わない。userID は使わない。
+func (r *HoldingsReader) ListStockSplits(ctx context.Context, _ uuid.UUID) ([]dto.StockSplitRow, error) {
+	dbRows, err := r.queries.ListAllStockSplits(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
+	}
+	splits := make([]dto.StockSplitRow, 0, len(dbRows))
+	for _, d := range dbRows {
+		splitDate, err := formatDate(d.SplitDate)
+		if err != nil {
+			return nil, fmt.Errorf("分割（銘柄 %q）の分割の日: %w", d.StockCode, err)
+		}
+		splits = append(splits, dto.StockSplitRow{Code: d.StockCode, SplitDate: splitDate, Ratio: int64(d.Ratio)})
+	}
+	return splits, nil
+}
+
 // ListHoldingOrder は、利用者 userID の保存した並び（銘柄コード）を、位置の順に返す。保存していなければ空のスライス。
 func (r *HoldingsReader) ListHoldingOrder(ctx context.Context, userID uuid.UUID) ([]string, error) {
 	codes, err := r.queries.ListHoldingOrder(ctx, pgtype.UUID{Bytes: userID, Valid: true})

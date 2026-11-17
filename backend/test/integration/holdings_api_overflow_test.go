@@ -28,6 +28,11 @@ func (r fixedRowsHoldingsReader) ListTradeRows(context.Context, uuid.UUID) ([]dt
 	return r.rows, nil
 }
 
+// ListStockSplits は空を返す（株式分割のプラン 4.8 PR①。この fake は分割を使わない）。
+func (r fixedRowsHoldingsReader) ListStockSplits(context.Context, uuid.UUID) ([]dto.StockSplitRow, error) {
+	return []dto.StockSplitRow{}, nil
+}
+
 // ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②。この fake は並びを使わない）。
 func (r fixedRowsHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
 	return []string{}, nil
