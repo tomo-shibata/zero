@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"math/big"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,6 +54,15 @@ func (r *TradeImportRepository) FindStocks(ctx context.Context, codes []string) 
 		stocks[row.Code] = model.Stock{Code: row.Code, Name: row.Name, Currency: model.Currency(row.Currency)}
 	}
 	return stocks, nil
+}
+
+// FindStockSplits は、codes の銘柄の分割を返す（並び順は決めない）。銘柄マスタにない銘柄の分割も返す（銘柄マスタを見ない）。なければ空のスライスを返す。
+func (r *TradeImportRepository) FindStockSplits(ctx context.Context, codes []string) ([]model.StockSplit, error) {
+	rows, err := r.queries.ListStockSplitsByCodes(ctx, codes)
+	if err != nil {
+		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
+	}
+	return toStockSplits(rows)
 }
 
 // ReplaceTrades は、1つのトランザクションで、利用者の売買履歴をすべて消し、newStocks を足し、renamed の銘柄名を変え、
@@ -118,44 +125,6 @@ func replaceTradesIn(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, userID 
 		return fmt.Errorf("並びの行の削除に失敗しました: %w", err)
 	}
 	return nil
-}
-
-// heldCodesOfImported は、取り込んだ売買履歴 trades とその銘柄の分割（DB から読み直す）から、保有数量が1以上の銘柄コードを返す。
-func heldCodesOfImported(ctx context.Context, q *sqlcgen.Queries, trades []model.Trade) ([]string, error) {
-	codes := make(map[string]struct{})
-	for _, t := range trades {
-		codes[t.StockCode] = struct{}{}
-	}
-	splitRows, err := q.ListStockSplitsByCodes(ctx, slices.Collect(maps.Keys(codes)))
-	if err != nil {
-		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
-	}
-	splits := make([]model.StockSplit, 0, len(splitRows))
-	for _, row := range splitRows {
-		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
-		if err != nil {
-			return nil, err
-		}
-		splits = append(splits, s)
-	}
-	return model.HeldStockCodes(trades, splits), nil
-}
-
-// FindStockSplits は、codes の銘柄の分割を返す（並び順は決めない）。銘柄マスタにない銘柄の分割も返す（銘柄マスタを見ない）。なければ空のスライスを返す。
-func (r *TradeImportRepository) FindStockSplits(ctx context.Context, codes []string) ([]model.StockSplit, error) {
-	rows, err := r.queries.ListStockSplitsByCodes(ctx, codes)
-	if err != nil {
-		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
-	}
-	splits := make([]model.StockSplit, 0, len(rows))
-	for _, row := range rows {
-		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
-		if err != nil {
-			return nil, err
-		}
-		splits = append(splits, s)
-	}
-	return splits, nil
 }
 
 // copyTrades は、trades をスライスの順に、利用者 owner の売買履歴として COPY で入れる。

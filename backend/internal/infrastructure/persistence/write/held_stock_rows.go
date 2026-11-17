@@ -3,6 +3,8 @@ package write
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -41,6 +43,51 @@ func toStockSplit(code string, splitDate pgtype.Date, ratio int32) (model.StockS
 	return model.StockSplit{StockCode: code, SplitDate: date, Ratio: int64(ratio)}, nil
 }
 
+// stockSplitRow は、分割を読む sqlc の問い合わせ（ListAllStockSplits・ListStockSplitsByCodes・ListStockSplitsOfUser）の行の形。
+// 3つの問い合わせの行の型は、フィールドが同じ別の型なので、まとめて扱うために形で受ける。
+type stockSplitRow interface {
+	~struct {
+		StockCode string
+		SplitDate pgtype.Date
+		Ratio     int32
+	}
+}
+
+// toStockSplits は、分割の行 rows から model.StockSplit のスライスを作る（行の順のまま。0件なら nil ではなく空のスライス）。
+func toStockSplits[R stockSplitRow](rows []R) ([]model.StockSplit, error) {
+	splits := make([]model.StockSplit, 0, len(rows))
+	for _, r := range rows {
+		row := struct {
+			StockCode string
+			SplitDate pgtype.Date
+			Ratio     int32
+		}(r)
+		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
+		if err != nil {
+			return nil, err
+		}
+		splits = append(splits, s)
+	}
+	return splits, nil
+}
+
+// heldCodesOfImported は、取り込んだ売買履歴 trades とその銘柄の分割（DB から読み直す）から、保有数量が1以上の銘柄コードを返す。
+func heldCodesOfImported(ctx context.Context, q *sqlcgen.Queries, trades []model.Trade) ([]string, error) {
+	codes := make(map[string]struct{})
+	for _, t := range trades {
+		codes[t.StockCode] = struct{}{}
+	}
+	splitRows, err := q.ListStockSplitsByCodes(ctx, slices.Collect(maps.Keys(codes)))
+	if err != nil {
+		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
+	}
+	splits, err := toStockSplits(splitRows)
+	if err != nil {
+		return nil, err
+	}
+	return model.HeldStockCodes(trades, splits), nil
+}
+
 // heldOfUser は、利用者 owner の売買履歴と、その銘柄の分割を読み、保有数量が1以上の銘柄コード（昇順）と、売買履歴にある銘柄の通貨を返す。
 func heldOfUser(ctx context.Context, q *sqlcgen.Queries, owner pgtype.UUID) (heldCodes []string, currencies map[string]model.Currency, err error) {
 	tradeRows, err := q.ListTradesOfUser(ctx, owner)
@@ -61,13 +108,9 @@ func heldOfUser(ctx context.Context, q *sqlcgen.Queries, owner pgtype.UUID) (hel
 	if err != nil {
 		return nil, nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
 	}
-	splits := make([]model.StockSplit, 0, len(splitRows))
-	for _, row := range splitRows {
-		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
-		if err != nil {
-			return nil, nil, err
-		}
-		splits = append(splits, s)
+	splits, err := toStockSplits(splitRows)
+	if err != nil {
+		return nil, nil, err
 	}
 	return model.HeldStockCodes(trades, splits), currencies, nil
 }

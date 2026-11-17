@@ -55,13 +55,9 @@ func (r *HoldingRepository) ListHeldStocks(ctx context.Context) ([]repository.He
 	if err != nil {
 		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
 	}
-	splits := make([]model.StockSplit, 0, len(splitRows))
-	for _, row := range splitRows {
-		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
-		if err != nil {
-			return nil, err
-		}
-		splits = append(splits, s)
+	splits, err := toStockSplits(splitRows)
+	if err != nil {
+		return nil, err
 	}
 
 	held := make(map[string]bool)
