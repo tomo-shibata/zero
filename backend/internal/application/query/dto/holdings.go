@@ -69,8 +69,27 @@ type CurrencyTotal struct {
 	UnrealizedGainRateTenths *int64
 }
 
+// UsdJpyRate は、DB から読んだドル円のレート1件（ドルを円にまとめる合計の要件13）。
+type UsdJpyRate struct {
+	RateDate       string // レートの日付（"YYYY-MM-DD"）
+	RateHundredths int64  // 1ドルあたりの円（0.01円単位。150.00円は 15000、154.32円は 15432）
+}
+
+// CombinedTotal は、円にまとめた合計（ドルを円にまとめる合計の要件6〜要件12）。金額は円で、0.01 単位の整数（100の倍数）。
+type CombinedTotal struct {
+	ValuationHundredths int64 // 円の評価額の合計 ＋ ドルの評価額の合計をレートで円にして1円未満を切り捨てた値
+	ExcludesUnpriced    bool  // 円かドルのどちらかに、価格のない行が1件以上ある
+	// 価格のある通貨の分の、表示する含み損益の和（ドルはレートで円にして四捨五入した値）。円にもドルにも価格のある銘柄がなければ nil
+	UnrealizedGainHundredths *int64
+	// 丸める前の値で出した率（0.1% 単位）。UnrealizedGainHundredths と同時に nil
+	UnrealizedGainRateTenths *int64
+	Rate                     UsdJpyRate // 換算に使ったレート（要件10）
+}
+
 // HoldingsList は、利用者の保有株式一覧。
 type HoldingsList struct {
 	Holdings []Holding       // 銘柄コードの昇順（通貨によらない）。0件のときは空のスライス（nil ではない。API で null にしないため）
 	Totals   []CurrencyTotal // 保有のある通貨だけ、JPY → USD の順。0件のときは空のスライス（nil ではない）
+	// 円にまとめた合計。保有数量が1以上のドルの銘柄がない、またはレートがないときは nil（ドルを円にまとめる合計の要件2）
+	CombinedTotal *CombinedTotal
 }

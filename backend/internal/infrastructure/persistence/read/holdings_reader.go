@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -76,6 +77,27 @@ func (r *HoldingsReader) ListHoldingOrder(ctx context.Context, userID uuid.UUID)
 		return []string{}, nil
 	}
 	return codes, nil
+}
+
+// LatestUsdJpyRate は、日付がいちばん新しいドル円のレートを返す（ドルを円にまとめる合計の要件14）。1件もなければ nil, nil。
+// レートは 0.01円単位の整数にする（150.00円は 15000）。
+func (r *HoldingsReader) LatestUsdJpyRate(ctx context.Context) (*dto.UsdJpyRate, error) {
+	d, err := r.queries.GetLatestUsdJpyRate(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ドル円のレートの問い合わせに失敗しました: %w", err)
+	}
+	rateDate, err := formatDate(d.RateDate)
+	if err != nil {
+		return nil, fmt.Errorf("ドル円のレートの日付: %w", err)
+	}
+	hundredths, err := hundredthsFromNumeric(d.Rate)
+	if err != nil {
+		return nil, fmt.Errorf("ドル円のレート: %w", err)
+	}
+	return &dto.UsdJpyRate{RateDate: rateDate, RateHundredths: hundredths}, nil
 }
 
 // toTradeRow は、DB の1行を dto.TradeRow にする。価格は 0.01 単位の整数、取引日は "YYYY-MM-DD" にする。

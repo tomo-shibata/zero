@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
@@ -169,5 +171,141 @@ func TestFormatDecimal(t *testing.T) {
 				t.Errorf("formatDecimal(%d, %d) = %q, want %q", tc.units, tc.decimals, got, tc.want)
 			}
 		})
+	}
+}
+
+// ---- ドルを円にまとめる合計（docs/plans/fx-total/plan.md 4.4・4.7・5.1 の基準6・基準9。PR①） ----
+
+// marshalCombinedTotal は、list を newHoldingsResponse に通して json.Marshal し、本文の combinedTotal を取り出す。
+// キーがなければテストを止める（キーは常にあり、値は null かオブジェクト。4.7）。
+func marshalCombinedTotal(t *testing.T, list dto.HoldingsList) any {
+	t.Helper()
+	body, err := newHoldingsResponse(list)
+	if err != nil {
+		t.Fatalf("newHoldingsResponse: got err %v, want nil", err)
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("本文を JSON として読めない: %v\n本文: %s", err, raw)
+	}
+	got, ok := decoded["combinedTotal"]
+	if !ok {
+		t.Fatalf("本文に combinedTotal のキーがない（キーは常にある）\n本文: %s", raw)
+	}
+	return got
+}
+
+// 基準6（API の形）: 評価額 38333200・含み損益 6377300・率 200・ExcludesUnpriced false・レート 15432（2026-11-14）の CombinedTotal
+// → combinedTotal が "valuation":"383332"・"unrealizedGain":"63773"・"unrealizedGainRate":"20.0"・"usdJpyRate":"154.32"・
+// "excludesUnpriced":false・"usdJpyRateDate":"2026-11-14"。
+func Test基準6_円にまとめた合計は円の整数と率の文字列とレートの文字列にして返す(t *testing.T) {
+	gain, rate := int64(6377300), int64(200)
+	list := dto.HoldingsList{
+		Holdings: []dto.Holding{},
+		Totals:   []dto.CurrencyTotal{},
+		CombinedTotal: &dto.CombinedTotal{
+			ValuationHundredths:      38333200,
+			ExcludesUnpriced:         false,
+			UnrealizedGainHundredths: &gain,
+			UnrealizedGainRateTenths: &rate,
+			Rate:                     dto.UsdJpyRate{RateDate: "2026-11-14", RateHundredths: 15432},
+		},
+	}
+
+	got := marshalCombinedTotal(t, list)
+
+	want := map[string]any{
+		"valuation":          "383332",
+		"excludesUnpriced":   false,
+		"unrealizedGain":     "63773",
+		"unrealizedGainRate": "20.0",
+		"usdJpyRate":         "154.32",
+		"usdJpyRateDate":     "2026-11-14",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("combinedTotal:\n got %v\nwant %v", got, want)
+	}
+}
+
+// 基準9（API の形）: レートの組 (a) 15000・2026-11-14 (b) 100050・2026-01-05 → "usdJpyRate" が (a) "150.00" (b) "1000.50"、
+// "usdJpyRateDate" は日付のまま（3桁区切りは画面が付ける）。
+func Test基準9_レートは小数2桁の文字列にして返す(t *testing.T) {
+	cases := []struct {
+		name         string
+		rate         dto.UsdJpyRate
+		wantRate     string
+		wantRateDate string
+	}{
+		{"a_150円", dto.UsdJpyRate{RateDate: "2026-11-14", RateHundredths: 15000}, "150.00", "2026-11-14"},
+		{"b_1000.5円", dto.UsdJpyRate{RateDate: "2026-01-05", RateHundredths: 100050}, "1000.50", "2026-01-05"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gain, rate := int64(0), int64(0)
+			list := dto.HoldingsList{
+				Holdings: []dto.Holding{},
+				Totals:   []dto.CurrencyTotal{},
+				CombinedTotal: &dto.CombinedTotal{
+					UnrealizedGainHundredths: &gain,
+					UnrealizedGainRateTenths: &rate,
+					Rate:                     tc.rate,
+				},
+			}
+
+			got, ok := marshalCombinedTotal(t, list).(map[string]any)
+
+			if !ok {
+				t.Fatalf("combinedTotal がオブジェクトでない")
+			}
+			if got["usdJpyRate"] != tc.wantRate {
+				t.Errorf("usdJpyRate: got %v, want %q", got["usdJpyRate"], tc.wantRate)
+			}
+			if got["usdJpyRateDate"] != tc.wantRateDate {
+				t.Errorf("usdJpyRateDate: got %v, want %q", got["usdJpyRateDate"], tc.wantRateDate)
+			}
+		})
+	}
+}
+
+// 基準12（API の形。プラン 4.4「含み損益と率は、両方とも null か両方とも文字列」）: 評価額 0・含み損益と率が nil・ExcludesUnpriced true
+// → "valuation":"0"・"unrealizedGain":null・"unrealizedGainRate":null・"excludesUnpriced":true。
+func Test補助_円にまとめた含み損益と率がnilならどちらもnullで返す(t *testing.T) {
+	list := dto.HoldingsList{
+		Holdings: []dto.Holding{},
+		Totals:   []dto.CurrencyTotal{},
+		CombinedTotal: &dto.CombinedTotal{
+			ValuationHundredths: 0,
+			ExcludesUnpriced:    true,
+			Rate:                dto.UsdJpyRate{RateDate: "2026-11-14", RateHundredths: 15000},
+		},
+	}
+
+	got := marshalCombinedTotal(t, list)
+
+	want := map[string]any{
+		"valuation":          "0",
+		"excludesUnpriced":   true,
+		"unrealizedGain":     nil,
+		"unrealizedGainRate": nil,
+		"usdJpyRate":         "150.00",
+		"usdJpyRateDate":     "2026-11-14",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("combinedTotal:\n got %v\nwant %v", got, want)
+	}
+}
+
+// 要件2（API の形。プラン 4.7「キーは常にあり、値は null かオブジェクト」）: CombinedTotal が nil → 本文に "combinedTotal":null。
+func Test補助_円にまとめた合計がnilなら本文のcombinedTotalはnullになる(t *testing.T) {
+	list := dto.HoldingsList{Holdings: []dto.Holding{}, Totals: []dto.CurrencyTotal{}, CombinedTotal: nil}
+
+	got := marshalCombinedTotal(t, list)
+
+	if got != nil {
+		t.Errorf("combinedTotal: got %v, want null", got)
 	}
 }

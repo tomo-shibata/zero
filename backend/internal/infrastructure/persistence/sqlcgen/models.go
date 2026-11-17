@@ -45,6 +45,12 @@ type Trade struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type UsdJpyRate struct {
+	RateDate  pgtype.Date
+	Rate      pgtype.Numeric
+	CreatedAt pgtype.Timestamptz
+}
+
 type User struct {
 	ID        pgtype.UUID
 	CreatedAt pgtype.Timestamptz

@@ -92,16 +92,25 @@ func (t *gainTotal) apply(total *dto.CurrencyTotal) error {
 	if !t.displayed.IsInt64() {
 		return fmt.Errorf("%s の含み損益の合計: %w", total.Currency, ErrCalculationOverflow)
 	}
-	rate, err := gainRateTenths(t.gain, t.cost, t.displayed)
+	rate, err := t.rateTenths()
 	if err != nil {
 		return fmt.Errorf("%s の含み損益の合計の率: %w", total.Currency, err)
-	}
-	// 丸めた率の符号が、表示する含み損益の和の符号と逆なら、率は0にする（プラン 判断15）。
-	// 行ごとの丸めで和の符号が変わりうるので、要件10（率の符号は含み損益と同じ）と要件13（率は丸める前の和から）がここでだけぶつかる。
-	if rate != 0 && (rate > 0) != (t.displayed.Sign() > 0) {
-		rate = 0
 	}
 	total.UnrealizedGainHundredths = new(t.displayed.Int64())
 	total.UnrealizedGainRateTenths = new(rate)
 	return nil
+}
+
+// rateTenths は、合計の率（丸める前の含み損益の和 ÷ 取得額の和 × 100 を 0.1% 単位に丸めた値）を返す。
+// 表示する含み損益の和が0なら0。丸めた率の符号が表示する含み損益の和と逆なら0（プラン 判断15）。
+func (t *gainTotal) rateTenths() (int64, error) {
+	rate, err := gainRateTenths(t.gain, t.cost, t.displayed)
+	if err != nil {
+		return 0, err
+	}
+	// 行ごとの丸めで和の符号が変わりうるので、要件10（率の符号は含み損益と同じ）と要件13（率は丸める前の和から）がここでだけぶつかる。
+	if rate != 0 && (rate > 0) != (t.displayed.Sign() > 0) {
+		rate = 0
+	}
+	return rate, nil
 }

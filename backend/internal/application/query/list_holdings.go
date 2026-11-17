@@ -34,7 +34,12 @@ func (q *ListHoldings) Execute(ctx context.Context, userID uuid.UUID) (dto.Holdi
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("分割を読めません: %w", err)
 	}
-	list, err := CalculateHoldings(rows, splits)
+	// レートは全利用者で共有する表から、いつも読む（円にまとめるかどうかは CalculateHoldings が決める。ドルの銘柄がなくても読む）。
+	rate, err := q.reader.LatestUsdJpyRate(ctx)
+	if err != nil {
+		return dto.HoldingsList{}, fmt.Errorf("ドル円のレートを読めません: %w", err)
+	}
+	list, err := CalculateHoldings(rows, splits, rate)
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("売買履歴から一覧を計算できません: %w", err)
 	}

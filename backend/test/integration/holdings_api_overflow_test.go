@@ -38,6 +38,11 @@ func (r fixedRowsHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([
 	return []string{}, nil
 }
 
+// LatestUsdJpyRate はレートなし（nil, nil）を返す（ドルを円にまとめるプラン 4.6 PR①。この fake はレートを使わない）。
+func (r fixedRowsHoldingsReader) LatestUsdJpyRate(context.Context) (*dto.UsdJpyRate, error) {
+	return nil, nil
+}
+
 // buyRow は、円の銘柄 code・name の買い1件（登録した順は id。取引日 2026-01-10）の売買履歴の行を作る。
 // 銘柄の最新の終値は closeHundredths（0.01 単位。2026-10-06）。価格（1株あたり）は 0.1円（Hundredths で 10。円の最小の単位）。
 func buyRow(id int64, code, name string, quantity, closeHundredths int64) dto.TradeRow {
@@ -107,7 +112,8 @@ func TestPR1_4_3_API_計算がint64に収まらない売買履歴なら500とint
 				 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 			],
 			"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
-			            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
+			            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}],
+			"combinedTotal": null
 		}`)
 	})
 }

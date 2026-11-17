@@ -21,4 +21,6 @@ type HoldingsReader interface {
 	ListStockSplits(ctx context.Context, userID uuid.UUID) ([]dto.StockSplitRow, error)
 	// ListHoldingOrder は、利用者 userID の保存した並び（銘柄コード）を、位置の順に返す。保存していなければ空のスライス（要件23・要件26）。
 	ListHoldingOrder(ctx context.Context, userID uuid.UUID) ([]string, error)
+	// LatestUsdJpyRate は、日付がいちばん新しいドル円のレートを返す（ドルを円にまとめる合計の要件14。全利用者で共有）。1件もなければ nil, nil。
+	LatestUsdJpyRate(ctx context.Context) (*dto.UsdJpyRate, error)
 }

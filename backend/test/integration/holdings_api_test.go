@@ -148,7 +148,8 @@ func TestAC1_API_価格のある銘柄の行を単価は小数第1位付きの�
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
 		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
-		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}],
+		"combinedTotal": null
 	}`)
 }
 
@@ -178,7 +179,8 @@ func TestAC7_AC8a_API_全銘柄に価格があれば合計評価額は評価額�
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
 		"totals": [{"currency": "JPY", "valuation": "335000", "excludesUnpriced": false,
-		            "unrealizedGain": "53000", "unrealizedGainRate": "18.8"}]
+		            "unrealizedGain": "53000", "unrealizedGainRate": "18.8"}],
+		"combinedTotal": null
 	}`)
 }
 
@@ -209,13 +211,14 @@ func TestAC8_AC11_API_価格のない銘柄はnullで返し合計評価額に含
 			 "unrealizedGain": null, "unrealizedGainRate": null}
 		],
 		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": true,
-		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}],
+		"combinedTotal": null
 	}`)
 }
 
 // AC-9（FR-7）の API 部分と、補助 FR-7（SR-5）の API、補助 FR-1（PR② の TC-05）:
 // 利用者Aが株式を1件も保有していない（DB には利用者Bの 6758（10株・3,200円）の保有がある）
-// → {"holdings":[],"totals":[]}（holdings は null ではなく空の配列。4.4）。
+// → {"holdings":[],"totals":[],"combinedTotal":null}（holdings は null ではなく空の配列。4.4）。
 // 利用者Bの保有は A の応答に出ない（API の経路でも、ログイン中の利用者の保有データだけを読む。FR-1）。
 func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者の保有があっても空の配列と合計0を返す(t *testing.T) {
 	t.Parallel()
@@ -224,7 +227,7 @@ func TestAC9_FR7_SR5_FR1_PR2_TC05_API_保有株式が0件なら他の利用者�
 
 	rec := getHoldingsFromDB(t, pool)
 
-	assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totals":[]}`)
+	assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totals":[],"combinedTotal":null}`)
 }
 
 // 補助 FR-8（TC-11）: 現在の価格は、保存済みの価格のうち最新の取引日の終値で、価格の基準日はその取引日。
@@ -251,7 +254,8 @@ func TestFR8_TC11_PR2_TC08_API_現在の価格は最新の取引日の終値で�
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
 		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
-		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}],
+		"combinedTotal": null
 	}`)
 }
 
@@ -276,7 +280,8 @@ func TestFR4_FR12_FR19_TC14_API_scaleの違う単価も正しく読んで集約�
 			 "unrealizedGain": "-2299", "unrealizedGainRate": "-38.3"}
 		],
 		"totals": [{"currency": "JPY", "valuation": "3703", "excludesUnpriced": false,
-		            "unrealizedGain": "-2299", "unrealizedGainRate": "-38.3"}]
+		            "unrealizedGain": "-2299", "unrealizedGainRate": "-38.3"}],
+		"combinedTotal": null
 	}`)
 }
 
@@ -304,7 +309,8 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 				 "unrealizedGain": "3000", "unrealizedGainRate": "2999900.0"}
 			],
 			"totals": [{"currency": "JPY", "valuation": "3000", "excludesUnpriced": false,
-			            "unrealizedGain": "3000", "unrealizedGainRate": "2999900.0"}]
+			            "unrealizedGain": "3000", "unrealizedGainRate": "2999900.0"}],
+			"combinedTotal": null
 		}`)
 	})
 
@@ -326,7 +332,8 @@ func TestFR12_FR19_PR2_EC3_TC03_API_scale2の単価や最小の単価0_1円も�
 				 "unrealizedGain": "-767", "unrealizedGainRate": "-38.3"}
 			],
 			"totals": [{"currency": "JPY", "valuation": "1234", "excludesUnpriced": false,
-			            "unrealizedGain": "-767", "unrealizedGainRate": "-38.3"}]
+			            "unrealizedGain": "-767", "unrealizedGainRate": "-38.3"}],
+			"combinedTotal": null
 		}`)
 	})
 }
@@ -349,6 +356,11 @@ func (failingHoldingsReader) ListStockSplits(context.Context, uuid.UUID) ([]dto.
 // ListHoldingOrder は空の並びを返す（カード表示のプラン 4.6 PR②。売買履歴の読み取りが失敗すれば、この結果は使われない）。
 func (failingHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
 	return []string{}, nil
+}
+
+// LatestUsdJpyRate はレートなし（nil, nil）を返す（ドルを円にまとめるプラン 4.6 PR①。売買履歴の読み取りが失敗すれば、この結果は使われない）。
+func (failingHoldingsReader) LatestUsdJpyRate(context.Context) (*dto.UsdJpyRate, error) {
+	return nil, nil
 }
 
 // 補助 FR-22（TC-24）: エラーを返す HoldingsReader を注入した router.New に GET /api/holdings
@@ -379,6 +391,11 @@ func (emptyHoldingsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]strin
 	return []string{}, nil
 }
 
+// LatestUsdJpyRate はレートなし（nil, nil）を返す（ドルを円にまとめるプラン 4.6 PR①）。
+func (emptyHoldingsReader) LatestUsdJpyRate(context.Context) (*dto.UsdJpyRate, error) {
+	return nil, nil
+}
+
 // 補助 判断12（SR-6、S-1）: Deps.AllowedHosts にない Host（例 example.com）で /api/holdings を呼ぶと
 // 403 と {"error":"forbidden"}。/healthz は Host に関係なく 200・"ok"（許可リストは /api/ 以下だけにかける。4.4）。
 func Test判断12_SR6_S1_許可リストにないHostのapiは403でhealthzはHostに関係なく200(t *testing.T) {
@@ -395,7 +412,7 @@ func Test判断12_SR6_S1_許可リストにないHostのapiは403でhealthzはHo
 	t.Run("対照_許可リストにあるHostのapi_holdingsは200", func(t *testing.T) {
 		t.Parallel()
 		rec := serveGet(t, h, holdingsPath, allowedHost)
-		assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totals":[]}`)
+		assertJSONResponse(t, rec, http.StatusOK, `{"holdings":[],"totals":[],"combinedTotal":null}`)
 	})
 
 	for _, host := range []string{"example.com", allowedHost} {
@@ -463,7 +480,8 @@ func Test基準9_API_ドルの銘柄の行は通貨USDで単価と評価額を�
 			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
 		],
 		"totals": [{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false,
-		            "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}]
+		            "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}],
+		"combinedTotal": null
 	}`)
 }
 
@@ -497,7 +515,8 @@ func Test基準10_API_合計は通貨ごとに円ドルの順で返す(t *testin
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
 			{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false,
 			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
-		]
+		],
+		"combinedTotal": null
 	}`)
 }
 
@@ -529,7 +548,8 @@ func Test基準11_API_ドルの銘柄がすべて価格なしならドルの合�
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"},
 			{"currency": "USD", "valuation": "0.00", "excludesUnpriced": true,
 			 "unrealizedGain": null, "unrealizedGainRate": null}
-		]
+		],
+		"combinedTotal": null
 	}`)
 }
 
@@ -555,7 +575,8 @@ func Test補助_API_ドルの評価額は切り捨てずに小数2桁の文字�
 				 "unrealizedGain": "90.00", "unrealizedGainRate": "20.0"}
 			],
 			"totals": [{"currency": "USD", "valuation": "540.75", "excludesUnpriced": false,
-			            "unrealizedGain": "90.00", "unrealizedGainRate": "20.0"}]
+			            "unrealizedGain": "90.00", "unrealizedGainRate": "20.0"}],
+			"combinedTotal": null
 		}`)
 	})
 
@@ -576,7 +597,8 @@ func Test補助_API_ドルの評価額は切り捨てずに小数2桁の文字�
 				 "unrealizedGain": "0.00", "unrealizedGainRate": "0.0"}
 			],
 			"totals": [{"currency": "USD", "valuation": "0.01", "excludesUnpriced": false,
-			            "unrealizedGain": "0.00", "unrealizedGainRate": "0.0"}]
+			            "unrealizedGain": "0.00", "unrealizedGainRate": "0.0"}],
+			"combinedTotal": null
 		}`)
 	})
 }
@@ -614,7 +636,8 @@ func Test補助_API_円の終値が0_1円より細かいと500とinternal_error�
 				 "unrealizedGain": "50020", "unrealizedGainRate": "20.0"}
 			],
 			"totals": [{"currency": "JPY", "valuation": "300020", "excludesUnpriced": false,
-			            "unrealizedGain": "50020", "unrealizedGainRate": "20.0"}]
+			            "unrealizedGain": "50020", "unrealizedGainRate": "20.0"}],
+			"combinedTotal": null
 		}`)
 	})
 }
@@ -640,6 +663,7 @@ func Test補助_API_売り切ったドルの銘柄はtotalsにも出ない(t *te
 			 "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}
 		],
 		"totals": [{"currency": "JPY", "valuation": "300000", "excludesUnpriced": false,
-		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}]
+		            "unrealizedGain": "50000", "unrealizedGainRate": "20.0"}],
+		"combinedTotal": null
 	}`)
 }

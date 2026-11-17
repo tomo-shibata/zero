@@ -45,11 +45,13 @@ const (
 //     通貨ごとの含み損益の合計は、価格のある行の表示する含み損益の和、率は丸める前の値の和から出す（要件13）。
 //  7. その銘柄の最も新しい分割の日が、最新の終値の取引日より後なら、その銘柄は価格なしとして扱う（株式分割の要件8。
 //     終値が分割の前の値段かもしれないため）。合計評価額の注記と含み損益も、価格のない銘柄と同じになる。
+//  8. 保有数量が1以上のドルの銘柄があり、かつレート rate があれば、通貨ごとの合計を円にまとめた CombinedTotal を付ける（combined_total.go。
+//     ドルを円にまとめる合計の要件2・要件6〜要件8）。どちらかが欠けるときは nil（rate が nil なら、今までと同じ結果になる）。
 //
 // 計算は math/big で行い、桁あふれしないようにする。保有数量が途中で負になる銘柄があれば ErrNegativeQuantity、
 // 最後の値が int64 に収まらなければ ErrCalculationOverflow を（包んで）返す。値そのものは資産の額なので、エラー（ログ）には入れない。
 // rows が nil でも空でも、Holdings は空のスライス（nil ではない）にする。
-func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow) (dto.HoldingsList, error) {
+func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow, rate *dto.UsdJpyRate) (dto.HoldingsList, error) {
 	byCode := make(map[string][]dto.TradeRow)
 	for _, r := range rows {
 		byCode[r.Code] = append(byCode[r.Code], r)
@@ -90,6 +92,11 @@ func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow) (dto.Hol
 	}
 	var err error
 	list.Totals, err = buildTotals(totals)
+	if err != nil {
+		return dto.HoldingsList{}, err
+	}
+	// 通貨ごとの途中の値（丸める前の含み損益の和・取得額の和）を使うので、ここから呼ぶ（プラン 判断2）。
+	list.CombinedTotal, err = combineInYen(totals, rate)
 	if err != nil {
 		return dto.HoldingsList{}, err
 	}

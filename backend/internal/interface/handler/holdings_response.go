@@ -33,6 +33,21 @@ var (
 type holdingsResponse struct {
 	Holdings []holdingResponse       `json:"holdings"`
 	Totals   []currencyTotalResponse `json:"totals"`
+	// CombinedTotal は、円にまとめた合計。切り替えを出さないとき（ドルの保有がない・レートがない。ドルを円にまとめる合計の要件2）は null。
+	// キーは常にある。
+	CombinedTotal *combinedTotalResponse `json:"combinedTotal"`
+}
+
+// combinedTotalResponse は、円にまとめた合計（ドルを円にまとめる合計のプラン 4.4）。
+// valuation・unrealizedGain・unrealizedGainRate の形は、円の通貨ごとの合計と同じ（円の整数・符号付きの整数・符号付きの小数1桁）。
+// unrealizedGain と unrealizedGainRate は、両方とも null か両方とも文字列。usdJpyRate は小数2桁の文字列（3桁区切りは画面が付ける）。
+type combinedTotalResponse struct {
+	Valuation          string  `json:"valuation"`
+	ExcludesUnpriced   bool    `json:"excludesUnpriced"`
+	UnrealizedGain     *string `json:"unrealizedGain"`
+	UnrealizedGainRate *string `json:"unrealizedGainRate"`
+	UsdJpyRate         string  `json:"usdJpyRate"`
+	UsdJpyRateDate     string  `json:"usdJpyRateDate"`
 }
 
 // holdingResponse は、一覧の1行。価格のない行は currentPrice・priceDate・valuation・unrealizedGain・unrealizedGainRate を null にする。
@@ -96,7 +111,35 @@ func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
 			UnrealizedGainRate: rate,
 		})
 	}
-	return holdingsResponse{Holdings: holdings, Totals: totals}, nil
+	combined, err := newCombinedTotalResponse(list.CombinedTotal)
+	if err != nil {
+		return holdingsResponse{}, err
+	}
+	return holdingsResponse{Holdings: holdings, Totals: totals, CombinedTotal: combined}, nil
+}
+
+// newCombinedTotalResponse は、円にまとめた合計 c を API の本文の形にする。c が nil なら nil（本文では null）。
+// 評価額と含み損益は円の形にする（100の倍数でなければエラー）。レートは小数2桁の文字列にする。
+func newCombinedTotalResponse(c *dto.CombinedTotal) (*combinedTotalResponse, error) {
+	if c == nil {
+		return nil, nil
+	}
+	valuation, err := formatValuation(dto.CurrencyJPY, c.ValuationHundredths)
+	if err != nil {
+		return nil, fmt.Errorf("円にまとめた評価額: %w", err)
+	}
+	gain, rate, err := formatGainAndRate(dto.CurrencyJPY, c.UnrealizedGainHundredths, c.UnrealizedGainRateTenths)
+	if err != nil {
+		return nil, fmt.Errorf("円にまとめた含み損益: %w", err)
+	}
+	return &combinedTotalResponse{
+		Valuation:          valuation,
+		ExcludesUnpriced:   c.ExcludesUnpriced,
+		UnrealizedGain:     gain,
+		UnrealizedGainRate: rate,
+		UsdJpyRate:         formatDecimal(c.Rate.RateHundredths, usdDecimals),
+		UsdJpyRateDate:     c.Rate.RateDate,
+	}, nil
 }
 
 // newHoldingResponse は、一覧の1行 h を API の本文の形にする。取得価格、現在の価格、評価額の順に変換し、最初のエラーを返す。
