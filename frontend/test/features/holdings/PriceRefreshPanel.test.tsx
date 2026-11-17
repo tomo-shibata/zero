@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi, type Mock } from 'vitest'
 import { HoldingsPage } from '../../../src/features/holdings'
 
@@ -14,6 +15,7 @@ import { HoldingsPage } from '../../../src/features/holdings'
 //   - 今すぐ更新の API は POST /api/price-refresh。一覧の API は GET /api/holdings。
 //   - PriceRefreshPanel は HoldingsPage の中に置かれるので、HoldingsPage を描画して確かめる（プラン 5.1 の基準29 の行）。
 // テスト計画: プラン 5.1 の基準29 の行「HoldingsPage を描画し、POST /api/price-refresh を終わらない fetch にする」。
+// 銘柄ごとの売買履歴の画面（プラン docs/plans/stock-history/plan.md 5.3）: HoldingsPage が useNavigate を使うので、MemoryRouter で包んで描画する。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使う。
 
 /** 一覧の API の応答（7203 の1行。保有が1件以上のときだけ、今すぐ更新のボタンが出る。要件1）。PR② で currency と totals の形にした（金額は文字列）。 */
@@ -89,7 +91,9 @@ afterEach(() => {
 function renderHoldingsPage() {
   return render(
     <QueryClientProvider client={queryClient}>
-      <HoldingsPage />
+      <MemoryRouter>
+        <HoldingsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }

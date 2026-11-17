@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi, type Mock } from 'vitest'
 import { HoldingsPage } from '../../../src/features/holdings'
 
@@ -17,6 +18,9 @@ import { HoldingsPage } from '../../../src/features/holdings'
 //   カード表示のプラン docs/plans/holdings-cards/plan.md 4.4（PR①）: 取得できたら HoldingsSummary（region「合計」。totals が空なら出さない）、
 //   PriceRefreshPanel、HoldingCardList（<ul aria-label="保有株式"> の <li>）の順。0件は「保有株式はありません」だけ。
 // テスト計画: プラン stock-holdings 5.2 の AC-9a の行と、補助（FR-21、PR④ の TC-01）の行。カード表示の 5.2（HoldingsPage.test.tsx の「表」「行」をカードに）。
+// 銘柄ごとの売買履歴の画面（要件 docs/requirements/stock-history.md の要件2、基準3。プラン docs/plans/stock-history/plan.md 5.1・5.3）:
+//   HoldingsPage が useNavigate を使うので、MemoryRouter で包んで描画する（Router に依存する）。
+//   カードで Enter を押すと、場所が /holdings/<銘柄コード>（stockHistoryPath）になる（Enter から画面が移るまでを通して確かめる）。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使う。
 
 let queryClient: QueryClient
@@ -39,7 +43,28 @@ afterEach(() => {
 function renderHoldingsPage() {
   return render(
     <QueryClientProvider client={queryClient}>
-      <HoldingsPage />
+      <MemoryRouter>
+        <HoldingsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+/** 今の場所（パス）を文字で出す画面（移った先の確認用）。 */
+function LocationProbe() {
+  return <p data-testid="location">{useLocation().pathname}</p>
+}
+
+/** /holdings に HoldingsPage、/holdings/:code に場所を出すだけの画面を置いて描画する（カードを開くと移ることを確かめる）。 */
+function renderHoldingsPageWithStockRoute() {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/holdings']}>
+        <Routes>
+          <Route path="/holdings" element={<HoldingsPage />} />
+          <Route path="/holdings/:code" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -225,6 +250,41 @@ test('売買履歴の基準7・カード表示の基準18（要件11）: holding
   expect(screen.queryByRole('list', { name: '保有株式' })).not.toBeInTheDocument()
   expect(screen.queryAllByRole('listitem')).toHaveLength(0)
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
+})
+
+test('基準3（要件2。Enter から画面が移るまで）: 6758・7203 のカードが並んでいるとき、7203 のカードにフォーカスを当てて Enter を押すと、場所が /holdings/7203 になる（一覧は表示されなくなる）', async () => {
+  respondWithHoldings({
+    holdings: [
+      { ...MIXED_BODY.holdings[0], code: '6758', name: 'ソニーグループ' },
+      MIXED_BODY.holdings[0],
+    ],
+    totals: [MIXED_BODY.totals[0]],
+  })
+
+  renderHoldingsPageWithStockRoute()
+
+  await screen.findByRole('list', { name: '保有株式' })
+  const toyota = screen.getByLabelText('7203 トヨタ自動車', { selector: 'li' })
+  toyota.focus()
+  fireEvent.keyDown(toyota, { key: 'Enter', code: 'Enter' })
+
+  expect(await screen.findByTestId('location')).toHaveTextContent('/holdings/7203')
+  expect(screen.queryByRole('list', { name: '保有株式' })).not.toBeInTheDocument()
+})
+
+test('補助（要件3）: 一覧の画面で、スペースで持ち上げてから Enter を押しても、場所は /holdings のまま（画面は移らない）', async () => {
+  respondWithHoldings({ holdings: [MIXED_BODY.holdings[0]], totals: [MIXED_BODY.totals[0]] })
+
+  renderHoldingsPageWithStockRoute()
+
+  await screen.findByRole('list', { name: '保有株式' })
+  const toyota = screen.getByLabelText('7203 トヨタ自動車', { selector: 'li' })
+  toyota.focus()
+  fireEvent.keyDown(toyota, { key: ' ', code: 'Space' })
+  fireEvent.keyDown(toyota, { key: 'Enter', code: 'Enter' })
+
+  expect(screen.queryByTestId('location')).not.toBeInTheDocument()
+  expect(screen.getByRole('list', { name: '保有株式' })).toBeInTheDocument()
 })
 
 test('補助（プラン 4.7）: holdings が1件以上で totals が空の応答のとき、カードは表示されるが、合計の欄は表示されない', async () => {

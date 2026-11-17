@@ -94,6 +94,7 @@ type Api = {
   mouseDown: (event: ReactMouseEvent<HTMLElement>, code: string) => void
   touchStart: (event: ReactTouchEvent<HTMLElement>, code: string) => void
   keyDown: (event: ReactKeyboardEvent<HTMLElement>, code: string) => void
+  click: (event: ReactMouseEvent<HTMLElement>, code: string) => void
   cancel: () => void
   dragStart: () => void
   /** フォーカスが外れたとき、キーボードで持ち上げているカードから外へ移ったなら取り消す。 */
@@ -107,6 +108,7 @@ type CardProps = {
   onMouseDown: (event: ReactMouseEvent<HTMLElement>) => void
   onTouchStart: (event: ReactTouchEvent<HTMLElement>) => void
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void
+  onClick: (event: ReactMouseEvent<HTMLElement>) => void
 }
 
 type ListProps = {
@@ -131,6 +133,12 @@ type Options = {
   holdings: readonly Holding[]
   /** 置いたときに、並びが変わるなら呼ばれる。overCode は置いた位置にあったカードの銘柄コード。 */
   onMove: (activeCode: string, overCode: string) => void
+  /**
+   * カードを「押した」ときに呼ばれる（銘柄ごとの売買履歴の要件1〜要件3。プラン 4.5）。押すとは、ドラッグを始めずに離すこと
+   * （マウスは同じカードの上で左ボタンを離す、タッチは0.25秒未満で指を動かさずに離す）と、何もしていないときのカードでの Enter。
+   * 「⋯」の中のできごとと、持ち上げている間の Enter では呼ばれない。
+   */
+  onOpen: (code: string) => void
 }
 
 /**
@@ -141,7 +149,7 @@ type Options = {
  * 離したときの並びを、各カードを元のマスから新しいマスへ transform で動かして先に見せる。
  * `document`・`window` の見張りは、ref に持った状態を読む（描画の前の古い値を読まないため）。
  */
-export function useCardReorder({ holdings, onMove }: Options): CardReorder {
+export function useCardReorder({ holdings, onMove, onOpen }: Options): CardReorder {
   const listRef = useRef<HTMLUListElement | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [announcement, setAnnouncement] = useState('')
@@ -155,9 +163,9 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
     return dropped.codes.flatMap((code) => byCode.get(code) ?? [])
   }, [holdings, dropped])
 
-  const latestRef = useRef({ rendered, base: holdings, onMove })
+  const latestRef = useRef({ rendered, base: holdings, onMove, onOpen })
   useLayoutEffect(() => {
-    latestRef.current = { rendered, base: holdings, onMove }
+    latestRef.current = { rendered, base: holdings, onMove, onOpen }
   })
   const dragRef = useRef<Drag | null>(null)
   const pendingRef = useRef<Pending | null>(null)
@@ -327,8 +335,27 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
       scrollIntoView(listRef.current, current.slots[next])
     }
 
+    // mouseup で開いたことの印。すぐ後に届く click（detail 0）で、同じ押す操作を2回開かないため。
+    // 残しっぱなしにすると、後の支援技術の click を飲み込むので、次の mousedown か、次のタスクで消す。
+    let openedByMouseUp = false
+    let openedTimer: ReturnType<typeof setTimeout> | null = null
+    const clearOpenedByMouseUp = () => {
+      openedByMouseUp = false
+      if (openedTimer !== null) clearTimeout(openedTimer)
+      openedTimer = null
+    }
+    const markOpenedByMouseUp = () => {
+      clearOpenedByMouseUp()
+      openedByMouseUp = true
+      openedTimer = setTimeout(clearOpenedByMouseUp, 0)
+    }
+
     const idle = () => dragRef.current === null && pendingRef.current === null
-    const isInNoDrag = (target: EventTarget) => target instanceof Element && target.closest(NO_DRAG_SELECTOR) !== null
+    const isInNoDrag = (target: EventTarget | null) =>
+      target instanceof Element && target.closest(NO_DRAG_SELECTOR) !== null
+    /** target を含むカード（<li>）の銘柄コード。カードの外なら null。 */
+    const cardCodeOf = (target: EventTarget | null): string | null =>
+      target instanceof Element ? (target.closest('li')?.getAttribute(CODE_ATTRIBUTE) ?? null) : null
 
     const api: Api = {
       cancel,
@@ -349,6 +376,8 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
         cancel()
       },
       mouseDown: (event, code) => {
+        // 新しい押す操作が始まったので、前の印は捨てる。
+        clearOpenedByMouseUp()
         if (!idle() || event.button !== 0 || isInNoDrag(event.target)) return
         const startClient = { x: event.clientX, y: event.clientY }
         const startGrab = toListRelative(startClient)
@@ -383,9 +412,25 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
           touchId: touch.identifier,
         }
       },
+      click: (event, code) => {
+        // detail が 0 の click は、マウスを押したものではなく、支援技術（NVDA の閲覧モードの Enter・VoiceOver のダブルタップ）が作るもの。
+        // 何もしていないときだけ、開く操作として受ける。マウスの click（detail が1以上。ドラッグの後にも届く）は使わない（プラン 4.5）。
+        if (event.detail !== 0 || !idle() || isInNoDrag(event.target)) return
+        // 直前の mouseup で開いたなら、この click（同じ押す操作の続き）では開かない。
+        if (openedByMouseUp) {
+          clearOpenedByMouseUp()
+          return
+        }
+        latestRef.current.onOpen(code)
+      },
       keyDown: (event, code) => {
-        // 何もしていないときだけ扱う。「⋯」やメニューの中のキーでは始めない（要件21）。
-        if (!idle() || event.target !== event.currentTarget || event.repeat || !isSpace(event)) return
+        // 何もしていないときだけ扱う（持ち上げている間の Enter は開かない）。「⋯」やメニューの中のキーでは始めない（要件21）。
+        if (!idle() || event.target !== event.currentTarget || event.repeat) return
+        if (event.key === 'Enter') {
+          latestRef.current.onOpen(code)
+          return
+        }
+        if (!isSpace(event)) return
         event.preventDefault()
         liftEvent = event.nativeEvent
         startDrag('keyboard', code, { x: 0, y: 0 }, null, { checkButtons: false, touchId: null })
@@ -421,8 +466,18 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
     const onMouseUp = (event: MouseEvent) => {
       // 左ボタン以外の mouseup では置かない（左ボタンで持ち上げている間に、ほかのボタンを離しただけのとき）。
       if (event.button !== 0) return
+      const pending = pendingRef.current
       clearPending()
-      if (dragRef.current?.mode === 'mouse') finish()
+      if (dragRef.current?.mode === 'mouse') {
+        finish()
+        return
+      }
+      // 待っている状態のまま（5px 動かさずに）、押したのと同じカードの上で離した: 押した（カードを開く。プラン 4.5）。
+      if (pending?.mode === 'mouse' && !isInNoDrag(event.target) && cardCodeOf(event.target) === pending.code) {
+        // 支援技術の押す操作は、作り物の mousedown → mouseup → click（detail 0）を続けて送る。続く click で2回目を開かないよう、印を残す。
+        markOpenedByMouseUp()
+        latestRef.current.onOpen(pending.code)
+      }
     }
 
     /** 待っている・ドラッグ中のタッチの、始めた指の identifier（なければ null）。 */
@@ -457,8 +512,21 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
     const onTouchEnd = (event: TouchEvent) => {
       const id = activeTouchId()
       if (id === null || findTouch(event.changedTouches, id) === undefined) return
+      const pending = pendingRef.current
       clearPending()
-      if (dragRef.current?.mode === 'touch') finish()
+      // 長押しでドラッグを始めていた（0.25秒以上、指を動かさずに離した場合も含む）: 置く。この touchend の既定の動作も止める。止めないと、
+      // 指を動かさずに離したとき、ブラウザがタップとして互換の mousedown・mouseup を送り、マウスの側でカードが開いてしまう（要件3）。
+      if (dragRef.current?.mode === 'touch') {
+        if (event.cancelable) event.preventDefault()
+        finish()
+        return
+      }
+      // 0.25秒たつ前に、指を動かさずに離した: 押した（カードを開く）。この touchend の既定の動作を止める。止めないと、ブラウザが
+      // タップの後に互換の mousedown・mouseup を送り、マウスの側でもう一度開いて、履歴に同じ画面が2つ積まれうる（プラン 4.5）。
+      if (pending?.mode === 'touch') {
+        if (event.cancelable) event.preventDefault()
+        latestRef.current.onOpen(pending.code)
+      }
     }
     const onTouchCancel = (event: TouchEvent) => {
       const id = activeTouchId()
@@ -544,6 +612,7 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
       stopAutoScroll()
       clearPending()
       if (announceTimer !== null) clearTimeout(announceTimer)
+      clearOpenedByMouseUp()
       apiRef.current = null
       dragRef.current = null
     }
@@ -615,6 +684,7 @@ export function useCardReorder({ holdings, onMove }: Options): CardReorder {
       onMouseDown: (event) => apiRef.current?.mouseDown(event, code),
       onTouchStart: (event) => apiRef.current?.touchStart(event, code),
       onKeyDown: (event) => apiRef.current?.keyDown(event, code),
+      onClick: (event) => apiRef.current?.click(event, code),
     }
   }
 

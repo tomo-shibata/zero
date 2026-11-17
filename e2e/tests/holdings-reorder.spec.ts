@@ -7,6 +7,7 @@ import {
   type TradeSeed,
 } from '../fixtures/db'
 import { cardCode, cardList, holdingCard, holdingCards, summaryRegion } from '../fixtures/holdings-page'
+import { centerOf, mouseDragTo, touchMoveSteps, touchSession } from '../fixtures/pointer'
 
 // 仕様: カード表示の要件 docs/requirements/holdings-cards.md の要件17〜23・要件29・要件30 と、成功基準の基準8（PR② の部分）・基準19〜21・基準23（E2E の補助）・基準31・基準35（E2E）。
 // テスト計画: プラン docs/plans/holdings-cards/plan.md 5.1（E2E の共通の決まり）と 5.3 PR② の E2E の行。
@@ -187,21 +188,6 @@ async function proveNoPutSoFar(page: Page, saves: string[][], order: readonly st
   await expectOrder(page, expected)
 }
 
-/** locator の中心の座標。 */
-async function centerOf(locator: Locator): Promise<{ x: number; y: number }> {
-  const box = await locator.boundingBox()
-  if (box === null) throw new Error('要素の位置を取れない')
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-}
-
-/** マウスで from のカードの中心を押し、to の中心まで少しずつ動かす（離さない）。 */
-async function mouseDragTo(page: Page, from: Locator, to: { x: number; y: number }): Promise<void> {
-  const start = await centerOf(from)
-  await page.mouse.move(start.x, start.y)
-  await page.mouse.down()
-  await page.mouse.move(to.x, to.y, { steps: 20 })
-}
-
 // =====================================================================================================
 // マウス（基準19）
 // =====================================================================================================
@@ -281,17 +267,23 @@ test('カード表示の補助（要件22。マウスで Esc）: AAPL を 6758 �
   await proveNoPutSoFar(page, saves, ['6758', '7203', 'AAPL'])
 })
 
-test('カード表示の補助（要件21・要件22。文字のドラッグ）: カードの銘柄コードをダブルクリックして文字を選び、その上で押してドラッグして放し（ブラウザの文字のドラッグ）、そのあとボタンを押さずにマウスを動かしても、並びが変わらず、「持ち上げました」も出ず、PUT も送られない', async ({ page }) => {
+test('カード表示の補助（要件21・要件22。文字のドラッグ）: カードの銘柄コードの文字を（Range・Selection で）選び、その上で押してドラッグして放し（ブラウザの文字のドラッグ）、そのあとボタンを押さずにマウスを動かしても、並びが変わらず、「持ち上げました」も出ず、PUT も送られない', async ({ page }) => {
   const saves = recordSaves(page)
   await seedHoldings(['6758', '7203', 'AAPL'])
   await page.goto(HOLDINGS_PATH)
   await expectOrder(page, ['6758', '7203', 'AAPL'])
 
-  await cardCode(holdingCard(page, 'AAPL'), 'AAPL').dblclick()
-  // 続けて押すと3回続けてのクリック（段落を選ぶ）になってしまうので、連続のクリックの間隔（0.5秒）より長く待つ。
-  await page.waitForTimeout(700)
+  // 文字を選ぶのは、ダブルクリックではなく Range・Selection で行う（銘柄ごとの売買履歴の画面で、カードの1回目のクリックで画面が移るようになり、
+  // ダブルクリックでは「文字が選ばれている」前提で落ちるため。プラン docs/plans/stock-history/plan.md 5.3）。確かめることは変えない。
+  await cardCode(holdingCard(page, 'AAPL'), 'AAPL').evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  })
   const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
-  expect(selected, '前提: ダブルクリックで銘柄コードの文字が選ばれている').toBe('AAPL')
+  expect(selected, '前提: 銘柄コードの文字が選ばれている').toBe('AAPL')
 
   // 選んだ文字の上で押して、別のカードの上までドラッグして放す（ブラウザの文字のドラッグ）。
   // Chromium は 4px 動くと文字のドラッグを始める（dragstart）ので、最初は 1px ずつ動かす（一気に動かすと、こちらのドラッグが先に始まってしまい、文字のドラッグにならない）。
@@ -793,31 +785,6 @@ test('カード表示の基準35（非機能2）: 100銘柄（円50・ドル50�
 
 test.describe('タッチの画面（幅 390px）', () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } })
-
-  /** CDP でタッチを送る補助。 */
-  async function touchSession(page: Page) {
-    const cdp = await page.context().newCDPSession(page)
-    return {
-      start: (x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }),
-      move: (x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }),
-      end: () => cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
-    }
-  }
-
-  /** (from) から (to) まで、steps 回に分けて touchMove する（各回の間に intervalMs 待つ）。 */
-  async function touchMoveSteps(
-    page: Page,
-    touch: Awaited<ReturnType<typeof touchSession>>,
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-    steps: number,
-    intervalMs: number,
-  ): Promise<void> {
-    for (let i = 1; i <= steps; i += 1) {
-      await touch.move(from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps)
-      await page.waitForTimeout(intervalMs)
-    }
-  }
 
   test('カード表示の基準20（要件18）: 6758・7203・AAPL を保有し、幅 390px のタッチの画面で開いているとき、押し続けずに 6758 のカードから上へ指を動かすと、並びは変わらずに画面がスクロールし、並びの保存の要求は送られない。AAPL のカードを0.25秒以上（400ms）押し続けてから 6758 のカードの位置まで指を動かして離すと、並びは AAPL、6758、7203 になる', async ({ page }) => {
     const saves = recordSaves(page)

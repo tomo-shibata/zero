@@ -12,11 +12,14 @@ import { HoldingCardList } from '../../../src/features/holdings/components/Holdi
 //     並べ替えはライブラリを使わず自前で作ってある（hook useCardReorder）が、保存はしない（QueryClientProvider は要らない）。
 //   - カード（<li>）: tabIndex=0、aria-label「<銘柄コード> <銘柄名>」、aria-roledescription「並べ替えできるカード」。role="button" は付けない。
 //   - 読み上げの文は HoldingCardList が <ul> の外に持つライブリージョン（role="status" aria-live="assertive"）に出る。操作の説明は
-//     「スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。」。
+//     「スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。Enter キーで売買履歴を開きます。」
+//     （銘柄ごとの売買履歴の画面 PR② のステップ6 1ラウンド目のデザイン2 で、最後の1文が増えた）。
 //   - 始める・置くはスペースキー、取り消しは Esc。「⋯」を包む要素（data-no-drag）の中で起きた mousedown・touchstart と、
 //     カード自身以外が対象の keydown では、ドラッグを始めない。
 // テスト計画: プラン 5.1 の基準22、5.3 PR② の「E2E: 「⋯」にフォーカスして Space を押すと…」の jsdom で確かめられる部分。
 //   並びの先行表示（要件17）・当たり判定・1,280px の矢印キー・タッチは CSS・レイアウトが要るので E2E（holdings-reorder.spec.ts）。
+// 銘柄ごとの売買履歴の画面（プラン docs/plans/stock-history/plan.md 5.3）で、props に onOpen（必須）が増えた。このファイルでは使わないので、何もしない関数を渡す
+//   （カードを開く操作のテストは HoldingCardList.open.test.tsx）。
 // jsdom は座標をすべて 0 にするので、位置（矩形）に依存する動きは確かめない。ここで確かめるのは、読み上げ・props・取り消しなど座標に依らないこと。
 //   （持ち上げた直後の ← が捨てられないこと（持ち上げた keydown そのものは document の見張りで読み飛ばし、次の keydown から扱う）も、座標が 0 だと置き場所が持ち上げた時点から変わらず区別できないので、E2E で確かめる。）
 
@@ -58,7 +61,8 @@ const APPLE: Holding = {
 }
 const THREE: readonly Holding[] = [SONY, TOYOTA, APPLE]
 
-const INSTRUCTIONS = 'スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。'
+const INSTRUCTIONS =
+  'スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。Enter キーで売買履歴を開きます。'
 const SPACE = { key: ' ', code: 'Space' }
 const ARROW_LEFT = { key: 'ArrowLeft', code: 'ArrowLeft' }
 const ESCAPE = { key: 'Escape', code: 'Escape' }
@@ -105,7 +109,7 @@ async function settle(): Promise<void> {
 
 describe('カードの属性（4.4）', () => {
   test('カード表示の補助 4.4: カード（<li>）は tabIndex 0・名前「<銘柄コード> <銘柄名>」・aria-roledescription「並べ替えできるカード」で、role="button" は付かない', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     for (const holding of THREE) {
       const li = card(holding)
@@ -118,8 +122,8 @@ describe('カードの属性（4.4）', () => {
     expect(screen.getAllByRole('button')).toHaveLength(3)
   })
 
-  test('カード表示の補助 4.4: 操作の説明（aria-describedby が指す文）は「スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。」', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+  test('カード表示の補助 4.4: 操作の説明（aria-describedby が指す文）は「スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。Enter キーで売買履歴を開きます。」', () => {
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     const describedBy = card(APPLE).getAttribute('aria-describedby')
     expect(describedBy).not.toBeNull()
@@ -130,7 +134,7 @@ describe('カードの属性（4.4）', () => {
 describe('キーボードでの取り消し（基準22・要件19・要件20・要件22）', () => {
   test('カード表示の基準22: AAPL のカードで スペース、←、Esc の順に押すと、並びは変わらず、「並べ替えを取り消しました。」が読み上げ用に出て、onMove は並べ替えの形で呼ばれず、fetch は呼ばれない', async () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
 
@@ -154,7 +158,7 @@ describe('キーボードでの取り消し（基準22・要件19・要件20・�
 
   test('カード表示の補助 要件19: スペースで持ち上げてすぐ Esc で取り消しても、並びは変わらず onMove は並べ替えの形で呼ばれない', async () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const sony = card(SONY)
     sony.focus()
 
@@ -171,7 +175,7 @@ describe('キーボードでの取り消し（基準22・要件19・要件20・�
 
   test('カード表示の補助 判断9: スペースで持ち上げ、Tab を押すと取り消され、「並べ替えを取り消しました。」が出て、並びは変わらず、onMove は並べ替えの形で呼ばれず、フォーカスはそのカードのまま', async () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
 
@@ -189,7 +193,7 @@ describe('キーボードでの取り消し（基準22・要件19・要件20・�
   })
 
   test('カード表示の補助 要件19: Enter では持ち上がらない（始める・置くはスペースキーだけ）', async () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
 
@@ -203,7 +207,7 @@ describe('キーボードでの取り消し（基準22・要件19・要件20・�
 describe('「⋯」ではドラッグを始めない（要件21）', () => {
   test('カード表示の補助 要件21: 「⋯」のボタンでスペースを押しても持ち上がらない（読み上げが出ず、メニューの操作として扱われる）', async () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const menuButton = screen.getByRole('button', { name: 'Appleの操作' })
     menuButton.focus()
 
@@ -216,7 +220,7 @@ describe('「⋯」ではドラッグを始めない（要件21）', () => {
 
   test('カード表示の補助 要件21: カードの本体でマウスを押して動かすとドラッグが始まり（読み上げが出る）、「⋯」の上でマウスを押して10px動かしても始まらない', async () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
 
     // 「⋯」の上: 押して 10px 動かして離しても、ドラッグは始まらない。
     const menuButton = screen.getByRole('button', { name: 'トヨタ自動車の操作' })
@@ -289,7 +293,7 @@ function collectWindowErrors(): { errors: ErrorEvent[]; stop: () => void } {
 describe('マウス（プラン 4.4 判断9）', () => {
   test('カード表示の補助 判断9: 5px に満たない動き（4px・斜めに 3px と 3px）ではドラッグが始まらず、読み上げは空のまま。離しても onMove は呼ばれない', async () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
 
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { clientX: 104, clientY: 100 })
@@ -303,7 +307,7 @@ describe('マウス（プラン 4.4 判断9）', () => {
   })
 
   test('カード表示の補助 判断9: 右ボタン（button: 2）の mousedown からは、動かしてもドラッグが始まらない', async () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     fireEvent.mouseDown(bodyOf(APPLE), { button: 2, buttons: 2, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { buttons: 2, clientX: 140, clientY: 140 })
@@ -314,7 +318,7 @@ describe('マウス（プラン 4.4 判断9）', () => {
 
   test('カード表示の補助 判断9: マウスのドラッグ中に、左以外のボタンの mouseup では置かず（まだ持ち上げている）、左ボタンの mouseup で終わる', () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { clientX: 112, clientY: 112 })
     expect(announcement()).toContain(LIFTED)
@@ -330,7 +334,7 @@ describe('マウス（プラン 4.4 判断9）', () => {
   })
 
   test('カード表示の補助 判断9: buttons: 1 で mousedown した後、buttons: 0 の mousemove が来たら待つのをやめ、その後 buttons: 1 で動かしてもドラッグは始まらない', async () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, buttons: 1, clientX: 100, clientY: 100 })
     // 左ボタンが離されたのに mouseup が届かなかった（ブラウザの文字のドラッグの後など）。
@@ -342,7 +346,7 @@ describe('マウス（プラン 4.4 判断9）', () => {
   })
 
   test('カード表示の補助 判断9: buttons: 1 で mousedown し、buttons: 1 のまま 12px 動かすとドラッグが始まる（対照）。buttons を付けない mousedown（合成のイベント）では、buttons: 0 の mousemove でも始まる', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, buttons: 1, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { buttons: 1, clientX: 112, clientY: 112 })
@@ -358,7 +362,7 @@ describe('マウス（プラン 4.4 判断9）', () => {
 
   test('カード表示の補助 判断9: buttons: 1 で始めたドラッグの途中で、左ボタンが押されていない mousemove（buttons: 0）が来たら、その場で取り消す', () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, buttons: 1, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { buttons: 1, clientX: 112, clientY: 112 })
     expect(announcement()).toContain(LIFTED)
@@ -373,7 +377,7 @@ describe('マウス（プラン 4.4 判断9）', () => {
 describe('画面から外したときの後始末（プラン 4.4「取り消しのほかの場面と後始末」）', () => {
   test('カード表示の補助 4.4: マウスでドラッグを始めるとページ（body）に class が付き、画面から外すと消える。その後 document に mousemove・mouseup を送っても例外は出ない', () => {
     const onMove = vi.fn()
-    const { unmount } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    const { unmount } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     expect(document.body.classList.length, '前提: ドラッグの前は body に class がない').toBe(0)
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { clientX: 112, clientY: 112 })
@@ -397,7 +401,7 @@ describe('画面から外したときの後始末（プラン 4.4「取り消し
 
   test('カード表示の補助 4.4: マウスで待っている間（5px 動く前）に画面から外しても、その後の mousemove でドラッグが始まらず、例外も出ない', () => {
     const onMove = vi.fn()
-    const { unmount } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    const { unmount } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     fireEvent.mouseDown(bodyOf(APPLE), { button: 0, clientX: 100, clientY: 100 })
 
     const caught = collectWindowErrors()
@@ -431,7 +435,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
   }
 
   test('カード表示の補助 判断9: 指1本で触れて 0.25 秒（250ms）たつとドラッグが始まり「持ち上げました」と読み上げられる。それより前（200ms）では始まらない', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(200)
@@ -443,7 +447,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
   })
 
   test('カード表示の補助 判断9: 0.25 秒たつ前に 5px より動いたら（6px）ドラッグは始まらない（ブラウザのスクロールに任せる）', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(100)
@@ -454,7 +458,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
   })
 
   test('カード表示の補助 判断9: 0.25 秒たつ前の動きが 5px 以内（3px）なら、待ち続けてドラッグが始まる', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(100)
@@ -466,7 +470,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
 
   test('カード表示の補助 判断9: 0.25 秒たつ前に指を離したら、ドラッグは始まらない', () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
 
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(100)
@@ -478,7 +482,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
   })
 
   test('カード表示の補助 判断9: 0.25 秒たつ前に2本目の指が触れたら（window に touchstart、touches が2本）、ドラッグは始まらない', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(100)
@@ -489,7 +493,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
   })
 
   test('カード表示の補助 判断9: 最初から指が2本の touchstart では、ドラッグは始まらない', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100), finger(1, 200, 200)], [finger(0, 100, 100), finger(1, 200, 200)])
     advance(500)
@@ -499,7 +503,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
 
   test('カード表示の補助 判断9: ドラッグ中の touchcancel で取り消され、「並べ替えを取り消しました。」が出て、onMove は呼ばれない', () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(250)
     expect(announcement()).toContain(LIFTED)
@@ -512,7 +516,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
 
   test('カード表示の補助 判断9: ドラッグ中に2本目の指が触れたら取り消される', () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
     advance(250)
     expect(announcement()).toContain(LIFTED)
@@ -524,7 +528,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
   })
 
   test('カード表示の補助 判断9: window の touchmove は、ドラッグ中でないとき（何もしていない・待っている間）は preventDefault されず、ドラッグ中は preventDefault される', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     // 何もしていないとき。
     expect(sendTouch(window, 'touchmove', [finger(0, 100, 120)]), '何もしていないときの touchmove は、続けて処理される（defaultPrevented でない）').toBe(true)
@@ -542,7 +546,7 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
 
   test('カード表示の補助 4.4: 待っている間に画面から外しても、250ms 進めて何も起きない（例外も出ず、onMove も呼ばれず、タイマーが残らない）', () => {
     const onMove = vi.fn()
-    const { unmount } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    const { unmount } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     sendTouch(bodyOf(APPLE), 'touchstart', [finger(0, 100, 100)])
 
     const caught = collectWindowErrors()
@@ -562,13 +566,13 @@ describe('タッチ（プラン 4.4 判断9・要件18）', () => {
 describe('キーボードの取り消しのほかの場面と置く操作（プラン 4.4 キーボード・取り消し）', () => {
   test('カード表示の補助 4.4: キーボードで持ち上げた後、holdings の銘柄が減ったら取り消され、その後スペースを押しても onMove は呼ばれない', () => {
     const onMove = vi.fn()
-    const { rerender } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    const { rerender } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
     fireEvent.keyDown(apple, SPACE)
     expect(announcement()).toContain(LIFTED)
 
-    rerender(<HoldingCardList holdings={[SONY, APPLE]} onDelete={() => {}} onMove={onMove} />)
+    rerender(<HoldingCardList holdings={[SONY, APPLE]} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
 
     expect(announcement()).toBe(CANCELLED)
     fireEvent.keyDown(document, SPACE)
@@ -578,7 +582,7 @@ describe('キーボードの取り消しのほかの場面と置く操作（プ�
 
   test('カード表示の補助 4.4: キーボードで持ち上げた後、値段だけ変えた holdings（並びは同じ）で描き直しても取り消されず、まだ持ち上げている（スペースで置ける）', () => {
     const onMove = vi.fn()
-    const { rerender } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    const { rerender } = render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
     fireEvent.keyDown(apple, SPACE)
@@ -597,7 +601,7 @@ describe('キーボードの取り消しのほかの場面と置く操作（プ�
       unrealizedGainRate: '26.4',
     }
     const repriced: readonly Holding[] = [SONY, TOYOTA, appleRepriced]
-    rerender(<HoldingCardList holdings={repriced} onDelete={() => {}} onMove={onMove} />)
+    rerender(<HoldingCardList holdings={repriced} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
 
     expect(announcement()).toContain(LIFTED)
     expect(announcement()).not.toContain(CANCELLED)
@@ -609,7 +613,7 @@ describe('キーボードの取り消しのほかの場面と置く操作（プ�
 
   test('カード表示の補助 4.4: キーボードで持ち上げている間に window の blur が来たら取り消される', () => {
     const onMove = vi.fn()
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={onMove} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
     fireEvent.keyDown(apple, SPACE)
@@ -622,7 +626,7 @@ describe('キーボードの取り消しのほかの場面と置く操作（プ�
   })
 
   test('カード表示の補助 4.4: スペースを押し続けたとき（2回目の keydown が repeat: true）は置かず、押し直したとき（repeat でない keydown）に置く', () => {
-    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={THREE} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
     const apple = card(APPLE)
     apple.focus()
     fireEvent.keyDown(apple, SPACE)

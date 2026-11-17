@@ -1,0 +1,180 @@
+/*
+ * チャート（SVG）と凡例。置かれた箱の高さいっぱいに広がり、凡例の分を引いた残りに SVG を描く。
+ * 線・買い・売りの色は app/index.css の色の名前（--color-chart-*。白い背景に対して 3:1 以上）。
+ * 買いと売りは、形（上向きと下向きの三角形）でも区別する（色だけで区別しない。要件8）。
+ */
+.price-chart {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* SVG の大きさを測る箱。SVG はこの箱の中いっぱいに置く（SVG の大きさが箱の大きさを決めないので、測り直しが止まらなくならない）。 */
+.price-chart__canvas {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.price-chart__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 指でなぞって線の上の値を読めるようにする（画面全体はスクロールさせない）。2本指の拡大だけは、ブラウザに任せる（拡大して読めるように）。 */
+  touch-action: pinch-zoom;
+}
+
+.price-chart__grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.price-chart__axis-label {
+  fill: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.price-chart__line {
+  fill: none;
+  stroke: var(--color-chart-line);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.price-chart__point {
+  fill: var(--color-chart-line);
+}
+
+/* 吹き出しが指している線の上の点（要件10）。白い縁で、線から浮かせて見せる。 */
+.price-chart__hover-dot {
+  fill: var(--color-chart-line);
+  stroke: var(--color-surface);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.price-chart__plot-area {
+  fill: transparent;
+}
+
+/* 印。透明の太い縁で、タップしやすい当たりの大きさにする。 */
+.price-chart__marker {
+  stroke: transparent;
+  stroke-width: 10px;
+  paint-order: stroke;
+}
+
+.price-chart__marker--buy {
+  fill: var(--color-chart-buy);
+}
+
+.price-chart__marker--sell {
+  fill: var(--color-chart-sell);
+}
+
+/*
+ * 終値が1件もないときの知らせ。チャートの中央に、背景と余白のある札として出す（SVG の外に置くのは、支援技術にも読ませるため。
+ * 背景があるので、後ろの目盛りの線と文字が重なっても読める）。
+ */
+.price-chart__empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 2rem);
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+/*
+ * 吹き出し。位置は PriceChart が、吹き出しの大きさを測って決める（チャートの箱の中に収める。lib/tooltipPlacement.ts）。
+ * 長い文は、箱の幅の中で折り返す。箱より高いときは、高さを箱に収め（上下の余白 4px ずつ）、はみ出す分は切る
+ * （はみ出すと、画面全体が縦にスクロールしてしまうため。要件5）。測って置く高さ（PriceChart）も、収めた後の高さになる。
+ */
+.price-chart__tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  max-width: calc(100% - 1rem);
+  max-height: calc(100% - 8px);
+  overflow: hidden;
+  padding: 0.375rem 0.625rem;
+  background: var(--color-text);
+  color: var(--color-on-accent);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  /* 吹き出しの上にポインターが乗って、乗せている印や線から外れたことにならないようにする。 */
+  pointer-events: none;
+}
+
+.price-chart__legend {
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  text-align: right;
+}
+
+/* 凡例の三角形は、印と同じ色にする（文字は、画面に出さない読み上げ用の同じ文）。 */
+.price-chart__legend-buy {
+  color: var(--color-chart-buy);
+}
+
+.price-chart__legend-sell {
+  color: var(--color-chart-sell);
+}
+
+/*
+ * ハイコントラスト（forced-colors）では、SVG の線・文字・印の色が指定どおりには出ないので、システムの色に置き換える
+ * （影の消えた吹き出しの縁も出す）。買いと売りは、形（三角形の向き）で区別が付く。
+ */
+@media (forced-colors: active) {
+  .price-chart__axis-label {
+    fill: CanvasText;
+  }
+
+  .price-chart__grid {
+    stroke: GrayText;
+  }
+
+  .price-chart__line {
+    stroke: Highlight;
+  }
+
+  .price-chart__point,
+  .price-chart__hover-dot {
+    fill: Highlight;
+  }
+
+  .price-chart__hover-dot {
+    stroke: Canvas;
+  }
+
+  .price-chart__marker--buy,
+  .price-chart__marker--sell {
+    fill: CanvasText;
+  }
+
+  .price-chart__tooltip {
+    border: 1px solid CanvasText;
+  }
+
+  .price-chart__legend-buy,
+  .price-chart__legend-sell {
+    color: CanvasText;
+  }
+}

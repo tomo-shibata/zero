@@ -1,0 +1,82 @@
+.stock-history-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+}
+
+/*
+ * 戻るリンク。幅を文字に合わせる（フォーカスの枠が、画面の幅いっぱいの箱にならないように）。
+ * 上下に余白を足して、押せる範囲を広げる（タッチで押しやすいように）。
+ */
+.stock-history-page__back {
+  align-self: flex-start;
+  display: inline-block;
+  padding-block: 0.25rem;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/*
+ * 読み込み中は、戻るリンクの下の残りの高さの中央にアイコンを置く（保有株式一覧の読み込み中と同じ。要件22）。
+ * dvh に対応していないブラウザは、先に書いた 100vh を使う。
+ */
+.stock-history-page--loading {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.stock-history-page__loading {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+}
+
+.stock-history-page__not-found {
+  margin: 0;
+  padding: 1.5rem 1.25rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/*
+ * 取得できたとき: 画面の高さ（dvh はモバイルのアドレスバーの出し入れに合わせた高さ。非対応のブラウザは先に書いた vh）を縦に分け、
+ * 見出しより下の残りを、チャートと表で半分ずつにする（要件5）。画面全体はスクロールさせず、表の箱だけがスクロールする。
+ */
+.stock-history-page--loaded {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.stock-history-page__title {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+/* flex-basis を 0 にして、中身の大きさに関わらず、残りを半分ずつ分ける（min-height: 0 で、中身が大きくても縮められる）。 */
+.stock-history-page__chart,
+.stock-history-page__table {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* チャートの箱は、チャート（.price-chart）が残りいっぱいに広がる縦の箱にする。 */
+.stock-history-page__chart {
+  display: flex;
+  flex-direction: column;
+}
+
+.stock-history-page__table {
+  overflow: auto;
+  /*
+   * 箱の高さは、残りを半分に分けた小数（357.5px など）になりうる。スクロールの位置は整数に丸まるので、いちばん下までスクロールしても
+   * 最後の行の下の線が 0.5px 切れる。この 1px の余白で、最後までスクロールしたとき最後の行が全部見えるようにする。
+   */
+  padding-bottom: 1px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}

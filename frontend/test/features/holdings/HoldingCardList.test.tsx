@@ -12,6 +12,8 @@ import { HoldingCardList } from '../../../src/features/holdings/components/Holdi
 //     <ul aria-label="保有株式"> の中に <li> のカード（渡された順）。カードの中の「⋯」の名前は `${name}の操作`。
 // PR② で props に onMove: (activeCode: string, overCode: string | null) => void が増える（4.6 PR②）。このファイルでは使わないので、何もしない関数を渡す。
 //   並べ替えのテストは HoldingCardList.reorder.test.tsx。
+// 銘柄ごとの売買履歴の画面（プラン docs/plans/stock-history/plan.md 5.3）で、props に onOpen: (code: string) => void（必須）が増えた。
+//   このファイルでは使わないので、何もしない関数を渡す。カードを開く操作のテストは HoldingCardList.open.test.tsx。
 // 要件 FR-3 の表（table）は、カードに置き換わって表示されない。
 
 afterEach(() => {
@@ -79,7 +81,7 @@ function cardList(): HTMLElement {
 
 describe('HoldingCardList（カードの並び。要件1）', () => {
   test('基準1: 名前「保有株式」のリストの中に、渡した順にカードが1銘柄1枚ずつ表示され、表（table）は表示されない', () => {
-    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     const cards = within(cardList()).getAllByRole('listitem')
     expect(cards).toHaveLength(4)
@@ -95,7 +97,7 @@ describe('HoldingCardList（カードの並び。要件1）', () => {
   })
 
   test('基準1: リストは <ul> で、カードは直下の <li>', () => {
-    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     const list = cardList()
     expect(list.tagName).toBe('UL')
@@ -104,7 +106,7 @@ describe('HoldingCardList（カードの並び。要件1）', () => {
 
   // 基準1・基準2・基準5: 渡した holding をそのまま、カードごとの中身にする（円・ドル・価格なしが混ざっても、銘柄ごとに正しい行）。
   test('基準1・基準2・基準5: 円・ドル・価格なしのカードは、それぞれ自分の含み損益を表示する', () => {
-    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     const [sony, toyota, sbg, apple] = within(cardList()).getAllByRole('listitem')
     expect(sony).toHaveTextContent('-5,000円（-12.5%）')
@@ -115,7 +117,7 @@ describe('HoldingCardList（カードの並び。要件1）', () => {
   })
 
   test('補助（要件6）: カードごとに「<銘柄名>の操作」の「⋯」のボタンが1つずつある', () => {
-    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     for (const holding of FOUR) {
       expect(screen.getByRole('button', { name: `${holding.name}の操作` })).toBeInTheDocument()
@@ -125,7 +127,7 @@ describe('HoldingCardList（カードの並び。要件1）', () => {
 
   // 基準8（PR① の部分）: 7203 のカードの「⋯」（「トヨタ自動車の操作」）を押すと「削除」のメニューが開く。
   test('基準8: 「トヨタ自動車の操作」を押すと「削除」のメニューが開き、並びは変わらない', async () => {
-    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={FOUR} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'トヨタ自動車の操作' }))
 
@@ -140,7 +142,7 @@ describe('HoldingCardList（カードの並び。要件1）', () => {
 
   test('補助（要件6）: 2枚目のカードの「⋯」から「削除」を選ぶと、onDelete が2枚目の holding で呼ばれる', async () => {
     const onDelete = vi.fn()
-    render(<HoldingCardList holdings={FOUR} onDelete={onDelete} onMove={() => {}} />)
+    render(<HoldingCardList holdings={FOUR} onDelete={onDelete} onMove={() => {}} onOpen={() => {}} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'トヨタ自動車の操作' }))
     const deleteItem = await screen.findByRole('menuitem', { name: '削除' })
@@ -152,7 +154,7 @@ describe('HoldingCardList（カードの並び。要件1）', () => {
   })
 
   test('補助: holdings が空ならカードは1枚もない', () => {
-    render(<HoldingCardList holdings={[]} onDelete={() => {}} onMove={() => {}} />)
+    render(<HoldingCardList holdings={[]} onDelete={() => {}} onMove={() => {}} onOpen={() => {}} />)
 
     expect(screen.queryAllByRole('listitem')).toHaveLength(0)
   })

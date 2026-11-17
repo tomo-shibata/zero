@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { LoginPage } from '../features/auth'
 import { DashboardPage } from '../features/dashboard'
 import { HoldingsPage } from '../features/holdings'
+import { StockHistoryPage } from '../features/stock-history'
 
 /** サーバー状態（API から取得するデータ）のキャッシュ。アプリ全体で1つ。取得の設定は各機能のフックで決める。 */
 const queryClient = new QueryClient()
@@ -18,6 +19,7 @@ export function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/holdings" element={<HoldingsPage />} />
+          <Route path="/holdings/:code" element={<StockHistoryPage />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
