@@ -24,11 +24,20 @@ const AXIS_LABEL_CHAR_WIDTH_PX = 7.5
 const AXIS_LABEL_GAP_PX = 14
 /** 縦軸の目盛りの文字が重ならないための、目盛り1つあたりに取る高さ（px）。 */
 const TICK_SPACING_PX = 24
+/** 縦軸の目盛りの数の下限・上限。 */
+const MIN_Y_TICKS = 2
+const MAX_Y_TICKS = 6
+/** 縦軸の文字と描く範囲の左端の間（px）。 */
+const Y_LABEL_OFFSET_PX = 8
+/** 横軸の文字の、描く範囲の下端からの距離（px）。 */
+const X_LABEL_OFFSET_PX = 18
 
 /** 印（三角形）の半分の大きさ（px）。 */
 const MARKER_HALF_PX = 6
 /** 指している線の上の点の半径（px）。 */
 const HOVER_DOT_RADIUS_PX = 4
+/** 終値が1件だけのときに描く点の半径（px）。 */
+const SINGLE_POINT_RADIUS_PX = 4
 
 /**
  * 吹き出し。anchor は指す点（チャートの左上からの px）。吹き出しは、その点から離して、チャートの箱の中に収まるように置く（tooltipPlacement）。
@@ -58,7 +67,7 @@ export function PriceChart({ history }: PriceChartProps) {
   const height = Math.max(size?.height ?? DEFAULT_SIZE.height, 1)
   const plotHeight = Math.max(height - MARGIN.top - MARGIN.bottom, 1)
   // 縦軸の目盛りの数は、描く範囲の高さに合わせる（低いチャートで文字が重ならないよう、24px に1つ、2〜6個）。
-  const maxTicks = Math.max(2, Math.min(6, Math.floor(plotHeight / TICK_SPACING_PX)))
+  const maxTicks = Math.max(MIN_Y_TICKS, Math.min(MAX_Y_TICKS, Math.floor(plotHeight / TICK_SPACING_PX)))
   const yTickLabels = useMemo(
     () =>
       priceTicks(currency, model.yRange.min, model.yRange.max, maxTicks).map((value) => ({
@@ -161,7 +170,7 @@ export function PriceChart({ history }: PriceChartProps) {
                 <text
                   data-chart-part="y-tick"
                   className="price-chart__axis-label"
-                  x={box.left - 8}
+                  x={box.left - Y_LABEL_OFFSET_PX}
                   y={y}
                   textAnchor="end"
                   dominantBaseline="middle"
@@ -177,7 +186,7 @@ export function PriceChart({ history }: PriceChartProps) {
               data-chart-part="x-tick"
               className="price-chart__axis-label"
               x={scales.x(date)}
-              y={box.top + box.height + 18}
+              y={box.top + box.height + X_LABEL_OFFSET_PX}
               textAnchor={index === 0 ? 'start' : index === xTicks.length - 1 ? 'end' : 'middle'}
             >
               {date}
@@ -196,7 +205,7 @@ export function PriceChart({ history }: PriceChartProps) {
               className="price-chart__point"
               cx={scales.x(model.line[0].date)}
               cy={scales.y(model.line[0].value)}
-              r={4}
+              r={SINGLE_POINT_RADIUS_PX}
             />
           )}
           {/* 線の吹き出しを受け取る領域（描く範囲を覆う）。印はこの上に描くので、印の上は印が受け取る。 */}
