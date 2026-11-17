@@ -40,15 +40,12 @@ func (r *HoldingRepository) ListHeldStocks(ctx context.Context) ([]repository.He
 	if err != nil {
 		return nil, fmt.Errorf("売買履歴の問い合わせに失敗しました: %w", err)
 	}
-	// tradeRows は登録した順（id の昇順）なので、利用者ごとに分けても、その利用者の売買履歴は登録した順のまま。
-	tradesOf := make(map[[16]byte][]model.Trade)
+	tradesOf, err := groupTradesByUser(tradeRows)
+	if err != nil {
+		return nil, err
+	}
 	currencies := make(map[string]model.Currency)
 	for _, row := range tradeRows {
-		t, err := toTrade(row.StockCode, row.Side, row.Quantity, row.TradeDate)
-		if err != nil {
-			return nil, err
-		}
-		tradesOf[row.UserID.Bytes] = append(tradesOf[row.UserID.Bytes], t)
 		currencies[row.StockCode] = model.Currency(row.Currency)
 	}
 	splitRows, err := r.queries.ListAllStockSplits(ctx)

@@ -81,22 +81,20 @@ func readAllUserTrades(ctx context.Context, q *sqlcgen.Queries) ([]repository.Us
 	if err != nil {
 		return nil, fmt.Errorf("売買履歴の問い合わせに失敗しました: %w", err)
 	}
-	// rows は登録した順（id の昇順）なので、利用者ごとに分けても、その利用者の売買履歴は登録した順のまま。
-	byUser := make(map[uuid.UUID][]model.Trade)
-	for _, row := range rows {
-		t, err := toTrade(row.StockCode, row.Side, row.Quantity, row.TradeDate)
-		if err != nil {
-			return nil, err
-		}
-		id := uuid.UUID(row.UserID.Bytes)
-		byUser[id] = append(byUser[id], t)
+	byUser, err := groupTradesByUser(rows)
+	if err != nil {
+		return nil, err
 	}
-	ids := slices.SortedFunc(maps.Keys(byUser), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
-	all := make([]repository.UserTrades, 0, len(ids))
-	for _, id := range ids {
+	all := make([]repository.UserTrades, 0, len(byUser))
+	for _, id := range sortedUserIDs(byUser) {
 		all = append(all, repository.UserTrades{UserID: id, Trades: byUser[id]})
 	}
 	return all, nil
+}
+
+// sortedUserIDs は、byUser の利用者の ID を昇順（バイト順）で返す（map の順に頼らず、毎回同じ順で動かすため）。
+func sortedUserIDs(byUser map[uuid.UUID][]model.Trade) []uuid.UUID {
+	return slices.SortedFunc(maps.Keys(byUser), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
 }
 
 // copyStockSplits は、splits を COPY で stock_splits に入れる。
@@ -136,8 +134,8 @@ func sweepHoldingOrders(ctx context.Context, q *sqlcgen.Queries, all []repositor
 			tradesOf[id.Bytes] = nil
 		}
 	}
-	// 利用者の ID の昇順に消す（map の順に頼らず、毎回同じ順で動かすため）。
-	for _, id := range slices.SortedFunc(maps.Keys(tradesOf), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }) {
+	// 利用者の ID の昇順に消す。
+	for _, id := range sortedUserIDs(tradesOf) {
 		err := q.DeleteHoldingOrdersExcept(ctx, sqlcgen.DeleteHoldingOrdersExceptParams{
 			UserID: pgtype.UUID{Bytes: id, Valid: true},
 			Codes:  model.HeldStockCodes(tradesOf[id], splits),
