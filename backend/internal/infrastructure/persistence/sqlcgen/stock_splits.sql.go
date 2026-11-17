@@ -11,6 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteAllStockSplits = `-- name: DeleteAllStockSplits :exec
+DELETE FROM stock_splits
+`
+
+// 登録済みの分割をすべて消す。分割の CSV の取り込みが、CSV の分割を入れる前に行う（株式分割の要件10。CSV が分割のすべてになる）。
+func (q *Queries) DeleteAllStockSplits(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteAllStockSplits)
+	return err
+}
+
 const listAllStockSplits = `-- name: ListAllStockSplits :many
 SELECT stock_code, split_date, ratio
 FROM stock_splits

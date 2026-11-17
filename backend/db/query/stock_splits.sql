@@ -23,3 +23,7 @@ WHERE stock_code = ANY(sqlc.arg(codes)::text[]);
 -- 保有株式一覧の読み取り（HoldingsReader.ListStockSplits）も使う（売買履歴と別の読み取りなので、売買履歴で絞らない。プラン 4.8）。並びは決めない。
 SELECT stock_code, split_date, ratio
 FROM stock_splits;
+
+-- name: DeleteAllStockSplits :exec
+-- 登録済みの分割をすべて消す。分割の CSV の取り込みが、CSV の分割を入れる前に行う（株式分割の要件10。CSV が分割のすべてになる）。
+DELETE FROM stock_splits;
