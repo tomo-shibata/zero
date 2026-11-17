@@ -5,7 +5,13 @@
 // 描画中にここで throw することはない。そのため、描画中の例外を受け止めるエラーバウンダリは置いていない（PR④ ステップ6 の EC-4）。
 // 検証を通らない値をここに渡す呼び出し側を足すときは、エラーバウンダリを置くか、渡す前に確かめる。
 
-import { type Currency, UNIT_PRICE_PATTERNS, VALUATION_PATTERNS } from './currency'
+import {
+  type Currency,
+  UNIT_PRICE_PATTERNS,
+  UNREALIZED_GAIN_PATTERNS,
+  UNREALIZED_GAIN_RATE_PATTERN,
+  VALUATION_PATTERNS,
+} from './currency'
 
 /** 通貨ごとの、金額の後ろに付ける単位。 */
 const CURRENCY_SUFFIXES: Record<Currency, string> = { JPY: '円', USD: 'ドル' }
@@ -79,6 +85,55 @@ export function formatUnitPrice(currency: Currency, price: string): string {
     return `${integer}${suffix}`
   }
   return `${integer}.${fraction}${suffix}`
+}
+
+/** 整数部と小数部がどちらも0だけか（符号を付けない「0」の判定。"-0" のような値も0として扱う）。 */
+function isZeroAmount(integer: string, fraction: string): boolean {
+  return BigInt(integer) === 0n && /^0*$/.test(fraction)
+}
+
+/** 含み損益の率の、含み損益が0のときに出す数字（要件10「表示する含み損益が0のときは 0.0%」）。 */
+const ZERO_RATE_DIGITS = '0.0'
+
+/**
+ * 含み損益と率を表示する（要件10）。例 ('JPY', '75000', '20.0') → '+75,000円（+20.0%）'、('USD', '-0.01', '0.0') → '-0.01ドル（-0.0%）'。
+ * 符号は gain から決める（「-」で始まれば「-」、0 なら符号なし、それ以外は「+」）。率は「-」を外した数字に、その符号を付ける
+ * （-0.01ドルの率が 0.0 でも「-0.0%」になり、金額の符号と食い違わない。カード表示のプラン 4.2）。
+ * gain が0なら、率は rate によらず 0.0（API が丸める前の率の符号を返してきても、「0円（-0.1%）」にしない）。
+ * gain は UNREALIZED_GAIN_PATTERNS、rate は UNREALIZED_GAIN_RATE_PATTERN の形の文字列（API の境界で検証済み）。外れたら throw する。
+ */
+export function formatUnrealizedGain(currency: Currency, gain: string, rate: string): string {
+  const gainMatch = UNREALIZED_GAIN_PATTERNS[currency].exec(gain)
+  const rateMatch = UNREALIZED_GAIN_RATE_PATTERN.exec(rate)
+  if (!gainMatch || !rateMatch) {
+    // 資産の額はエラーの文言に入れない（バックエンドと同じ）。通貨だけを書く。
+    throw new Error(`含み損益か率の形が正しくありません（通貨 ${currency}）`)
+  }
+  const [, gainSign, gainInteger, gainFraction] = gainMatch
+  const [, , rateInteger, rateFraction] = rateMatch
+  const groupedGain = groupedInteger.format(BigInt(gainInteger))
+  const suffix = CURRENCY_SUFFIXES[currency]
+  const amount = currency === 'JPY' ? `${groupedGain}${suffix}` : `${groupedGain}.${gainFraction}${suffix}`
+  if (isZeroAmount(gainInteger, gainFraction)) {
+    return `${amount}（${ZERO_RATE_DIGITS}%）`
+  }
+  const sign = gainSign === '-' ? '-' : '+'
+  return `${sign}${amount}（${sign}${rateInteger}.${rateFraction}%）`
+}
+
+/** 含み損益の色の種類。プラスは 'gain'、マイナスは 'loss'、0 は 'even'（要件4）。 */
+export type GainTone = 'gain' | 'loss' | 'even'
+
+/** 通貨によらない、含み損益の文字列の形（円の整数・ドルの小数2桁のどちらも合う。通貨ごとの検証は formatUnrealizedGain が行う）。 */
+const ANY_GAIN_PATTERN = /^(-?)([0-9]+)(?:\.([0-9]+))?$/
+
+/** 含み損益 gain の色の種類を返す（要件4）。gain が数の形でなければ throw する。 */
+export function unrealizedGainTone(gain: string): GainTone {
+  const match = ANY_GAIN_PATTERN.exec(gain)
+  if (!match) throw new Error('含み損益の形が正しくありません')
+  const [, sign, integer, fraction = ''] = match
+  if (isZeroAmount(integer, fraction)) return 'even'
+  return sign === '-' ? 'loss' : 'gain'
 }
 
 /** 保有数量を表示する。例 100 → "100株"、1000 → "1,000株"（FR-13）。 */

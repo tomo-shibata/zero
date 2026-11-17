@@ -6,13 +6,17 @@ import { afterEach, beforeEach, expect, test, vi, type Mock } from 'vitest'
 import { HoldingsPage } from '../../../src/features/holdings'
 
 // 仕様: 要件 docs/requirements/stock-holdings.md の FR-21、AC-9a。
+//   カード表示の要件 docs/requirements/holdings-cards.md の要件1・要件2・要件11（基準1・基準2・基準14・基準17・基準18 の単体の部分）。
+//   「表」「行」はカード、「合計評価額」は合計の欄の評価額に読み替える（holdings-cards.md の「既存の要件の置き換え」。確かめる値は変えない）。
 // 境界: プラン docs/plans/stock-holdings/plan.md 4.4「フロント（TypeScript）」
 //   - HoldingsPage は features/holdings/index.ts から公開され、QueryClientProvider を持たず（app 層で包む）、Router に依存しない。
 //   - fetchHoldings はグローバルの fetch で "/api/holdings" を呼ぶ。
 //   - <Spinner label="読み込み中" /> は role="status" で、aria-label がラベル。
 //   - 「画面の状態ごとの表示」の表の「読み込み中」の行: Spinner だけを表示し、
-//     見出し・合計の領域（<section aria-label="合計評価額">）・表・空のメッセージ・ダイアログは表示しない。
-// テスト計画: プラン 5.2 の AC-9a の行と、補助（FR-21、PR④ の TC-01）の行。
+//     見出し・合計の欄（region「合計」）・カードの並び（<ul aria-label="保有株式">）・空のメッセージ・ダイアログは表示しない。
+//   カード表示のプラン docs/plans/holdings-cards/plan.md 4.4（PR①）: 取得できたら HoldingsSummary（region「合計」。totals が空なら出さない）、
+//   PriceRefreshPanel、HoldingCardList（<ul aria-label="保有株式"> の <li>）の順。0件は「保有株式はありません」だけ。
+// テスト計画: プラン stock-holdings 5.2 の AC-9a の行と、補助（FR-21、PR④ の TC-01）の行。カード表示の 5.2（HoldingsPage.test.tsx の「表」「行」をカードに）。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使う。
 
 let queryClient: QueryClient
@@ -49,13 +53,12 @@ test('AC-9a・補助 FR-21（PR4_TC01）: 取得が完了していない間は�
   // 「読み込み中」のラベルが付いたローディングのアイコンが表示される（FR-21）。
   expect(screen.getByRole('status', { name: '読み込み中' })).toBeInTheDocument()
 
-  // アイコン「だけ」: 見出し・表・合計の領域・空のメッセージ・ダイアログは表示しない（プラン 4.4 の状態の表）。
+  // アイコン「だけ」: 見出し・カードの並び・合計の欄・空のメッセージ・ダイアログは表示しない（プラン 4.4 の状態の表）。
   expect(screen.queryAllByRole('heading')).toHaveLength(0)
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
-  expect(
-    screen.queryByRole('region', { name: '合計評価額' }),
-  ).not.toBeInTheDocument()
-  expect(screen.queryByText('合計評価額')).not.toBeInTheDocument()
+  expect(screen.queryByRole('list', { name: '保有株式' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: '合計' })).not.toBeInTheDocument()
+  expect(screen.queryByText('合計')).not.toBeInTheDocument()
   expect(screen.queryByText('保有株式はありません')).not.toBeInTheDocument()
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 
@@ -80,6 +83,8 @@ const MIXED_BODY = {
       currentPrice: '3000.0',
       priceDate: '2026-10-06',
       valuation: '300000',
+      unrealizedGain: '50000',
+      unrealizedGainRate: '20.0',
     },
     {
       code: 'AAPL',
@@ -90,11 +95,13 @@ const MIXED_BODY = {
       currentPrice: '180.00',
       priceDate: '2026-10-06',
       valuation: '1800.00',
+      unrealizedGain: '297.50',
+      unrealizedGainRate: '19.8',
     },
   ],
   totals: [
-    { currency: 'JPY', valuation: '300000', excludesUnpriced: false },
-    { currency: 'USD', valuation: '1800.00', excludesUnpriced: false },
+    { currency: 'JPY', valuation: '300000', excludesUnpriced: false, unrealizedGain: '50000', unrealizedGainRate: '20.0' },
+    { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '297.50', unrealizedGainRate: '19.8' },
   ],
 }
 
@@ -108,84 +115,126 @@ function respondWithHoldings(body: unknown): void {
   )
 }
 
-/** 銘柄コードのセルが code と一致するデータ行の、先頭の7つのセルの文字。 */
-function rowCellTexts(code: string): string[] {
-  const row = screen
-    .getAllByRole('row')
-    .find((r) => within(r).queryByRole('cell', { name: code }) !== null)
-  if (row === undefined) throw new Error(`銘柄 ${code} の行がない`)
-  return within(row)
-    .getAllByRole('cell')
-    .slice(0, 7)
-    .map((cell) => cell.textContent ?? '')
+/** カードの並び（<ul aria-label="保有株式">）の中の、銘柄コードが code のカード（<li>）。 */
+function cardOf(code: string): HTMLElement {
+  const card = within(screen.getByRole('list', { name: '保有株式' }))
+    .getAllByRole('listitem')
+    .find((item) => within(item).queryByText(code) !== null)
+  if (card === undefined) throw new Error(`銘柄 ${code} のカードがない`)
+  return card
 }
 
-test('基準9（要件14）: ドルの銘柄の行は「AAPL / Apple / 10株 / 150.25ドル / 180.00ドル / 2026-10-06 / 1,800.00ドル」、円の銘柄の行は「2,500円 / 3,000円 / 300,000円」で表示される', async () => {
+/** element の文字に、texts が（空白を問わず）この順で含まれていること。 */
+function expectTextsInOrder(element: HTMLElement, texts: readonly string[]): void {
+  const content = element.textContent ?? ''
+  let from = 0
+  for (const text of texts) {
+    const index = content.indexOf(text, from)
+    expect(index, `「${text}」が、前の項目より後に含まれる（${content}）`).toBeGreaterThanOrEqual(0)
+    from = index + text.length
+  }
+}
+
+test('売買履歴の基準9・カード表示の基準1・基準2（要件2・要件14）: 円の銘柄のカードは「7203 / トヨタ自動車 / +50,000円（+20.0%）/ 評価額 300,000円 / 保有数量 100株 / 取得価格 2,500円 / 現在の価格 3,000円 / 価格の基準日 2026-10-06」、ドルの銘柄のカードは「AAPL / Apple / +297.50ドル（+19.8%）/ 評価額 1,800.00ドル / 保有数量 10株 / 取得価格 150.25ドル / 現在の価格 180.00ドル / 価格の基準日 2026-10-06」で表示される', async () => {
   respondWithHoldings(MIXED_BODY)
 
   renderHoldingsPage()
 
-  await screen.findByRole('table')
-  expect(rowCellTexts('AAPL')).toEqual([
-    'AAPL',
-    'Apple',
-    '10株',
-    '150.25ドル',
-    '180.00ドル',
-    '2026-10-06',
-    '1,800.00ドル',
-  ])
-  expect(rowCellTexts('7203')).toEqual([
+  await screen.findByRole('list', { name: '保有株式' })
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expectTextsInOrder(cardOf('7203'), [
     '7203',
     'トヨタ自動車',
-    '100株',
-    '2,500円',
-    '3,000円',
-    '2026-10-06',
+    '含み損益',
+    '+50,000円（+20.0%）',
+    '評価額',
     '300,000円',
+    '保有数量',
+    '100株',
+    '取得価格',
+    '2,500円',
+    '現在の価格',
+    '3,000円',
+    '価格の基準日',
+    '2026-10-06',
   ])
+  expectTextsInOrder(cardOf('AAPL'), [
+    'AAPL',
+    'Apple',
+    '含み損益',
+    '+297.50ドル（+19.8%）',
+    '評価額',
+    '1,800.00ドル',
+    '保有数量',
+    '10株',
+    '取得価格',
+    '150.25ドル',
+    '現在の価格',
+    '180.00ドル',
+    '価格の基準日',
+    '2026-10-06',
+  ])
+  // カードは1銘柄1枚、銘柄コードの昇順（API の並びのまま）。
+  expect(within(screen.getByRole('list', { name: '保有株式' })).getAllByRole('listitem')).toHaveLength(2)
 })
 
-test('基準10: 合計評価額の領域に「300,000円」と「1,800.00ドル」がこの順に表示され、「価格を取得できない銘柄を含みません」は表示されない', async () => {
+test('売買履歴の基準10・カード表示の補助（要件12・要件13）: 合計の欄（region「合計」）の円に「+50,000円（+20.0%）」「300,000円」、ドルに「+297.50ドル（+19.8%）」「1,800.00ドル」がこの順に表示され、「価格を取得できない銘柄を含みません」は表示されない', async () => {
   respondWithHoldings(MIXED_BODY)
 
   renderHoldingsPage()
 
-  const region = await screen.findByRole('region', { name: '合計評価額' })
-  const rows = within(region).getAllByRole('listitem')
-  expect(rows).toHaveLength(2)
-  expect(rows[0]).toHaveTextContent('300,000円')
-  expect(rows[1]).toHaveTextContent('1,800.00ドル')
+  const summary = await screen.findByRole('region', { name: '合計' })
+  const yen = within(summary).getByRole('region', { name: '円' })
+  const usd = within(summary).getByRole('region', { name: 'ドル' })
+  expect(yen.compareDocumentPosition(usd) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expectTextsInOrder(yen, ['含み損益', '+50,000円（+20.0%）', '評価額', '300,000円'])
+  expectTextsInOrder(usd, ['含み損益', '+297.50ドル（+19.8%）', '評価額', '1,800.00ドル'])
   expect(screen.queryByText('価格を取得できない銘柄を含みません')).not.toBeInTheDocument()
 })
 
-test('基準7（要件10）: holdings と totals が空の応答のとき、「保有株式はありません」が表示され、合計評価額の領域・表は表示されない', async () => {
+test('基準14（要件11）: 合計の欄は、「価格を今すぐ更新」のボタンより上、カードの並びより上にある', async () => {
+  respondWithHoldings(MIXED_BODY)
+
+  renderHoldingsPage()
+
+  const summary = await screen.findByRole('region', { name: '合計' })
+  const refresh = screen.getByRole('button', { name: '価格を今すぐ更新' })
+  const cards = screen.getByRole('list', { name: '保有株式' })
+  expect(summary.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(refresh.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('基準17: 保有が円の銘柄だけの応答のとき、合計の欄に円の部分だけが表示され、ドルの部分は表示されない', async () => {
+  respondWithHoldings({ holdings: [MIXED_BODY.holdings[0]], totals: [MIXED_BODY.totals[0]] })
+
+  renderHoldingsPage()
+
+  const summary = await screen.findByRole('region', { name: '合計' })
+  expect(within(summary).getByRole('region', { name: '円' })).toBeInTheDocument()
+  expect(within(summary).queryByRole('region', { name: 'ドル' })).not.toBeInTheDocument()
+})
+
+test('売買履歴の基準7・カード表示の基準18（要件11）: holdings と totals が空の応答のとき、「保有株式はありません」が表示され、合計の欄・カードは表示されない', async () => {
   respondWithHoldings({ holdings: [], totals: [] })
 
   renderHoldingsPage()
 
   expect(await screen.findByText('保有株式はありません')).toBeInTheDocument()
-  expect(screen.queryByRole('region', { name: '合計評価額' })).not.toBeInTheDocument()
-  expect(screen.queryByText('合計評価額')).not.toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: '合計' })).not.toBeInTheDocument()
+  expect(screen.queryByText('合計')).not.toBeInTheDocument()
+  expect(screen.queryByRole('list', { name: '保有株式' })).not.toBeInTheDocument()
+  expect(screen.queryAllByRole('listitem')).toHaveLength(0)
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
 })
 
-test('補助（プラン 4.7）: holdings が1件以上で totals が空の応答のとき、表は表示されるが、合計評価額の領域は表示されない', async () => {
+test('補助（プラン 4.7）: holdings が1件以上で totals が空の応答のとき、カードは表示されるが、合計の欄は表示されない', async () => {
   respondWithHoldings({ holdings: MIXED_BODY.holdings, totals: [] })
 
   renderHoldingsPage()
 
-  // 取得が終わって表が出てから、合計の領域がないことを確かめる。
-  await screen.findByRole('table')
-  expect(rowCellTexts('7203')).toEqual([
-    '7203',
-    'トヨタ自動車',
-    '100株',
-    '2,500円',
-    '3,000円',
-    '2026-10-06',
-    '300,000円',
-  ])
-  expect(screen.queryByRole('region', { name: '合計評価額' })).not.toBeInTheDocument()
-  expect(screen.queryByText('合計評価額')).not.toBeInTheDocument()
+  // 取得が終わってカードが出てから、合計の欄がないことを確かめる。
+  await screen.findByRole('list', { name: '保有株式' })
+  expectTextsInOrder(cardOf('7203'), ['7203', 'トヨタ自動車', '+50,000円（+20.0%）', '300,000円'])
+  expect(screen.queryByRole('region', { name: '合計' })).not.toBeInTheDocument()
+  expect(screen.queryByText('合計')).not.toBeInTheDocument()
 })

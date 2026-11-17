@@ -6,10 +6,22 @@ import {
   type StockPriceSeed,
   type StockSeed,
 } from '../fixtures/db'
+import {
+  SUMMARY_LABEL,
+  cardList,
+  currencyPart,
+  expectCardData,
+  holdingCard,
+  holdingCards,
+  summaryRegion,
+} from '../fixtures/holdings-page'
 
 // 仕様: 要件 docs/requirements/stock-holdings.md（保有株式一覧）の E2E の AC と、補助のテスト。
+//   カード表示（docs/requirements/holdings-cards.md、プラン docs/plans/holdings-cards/plan.md 5.2）: 「表」「行」はカード、「合計評価額」は合計の欄の評価額に
+//   読み替える（「既存の要件の置き換え」）。確かめる値は変えない。表が前提だった列見出しの確認は、カードの確認（holdings-cards.spec.ts の基準1）に移した。
+//   カード・合計の欄を読む補助は fixtures/holdings-page.ts。
 // テスト計画: プラン docs/plans/stock-holdings/plan.md 5.3 の各行。
-// 画面の文言と構造: プラン 4.4「フロント（TypeScript）」（画面の状態ごとの表示、合計の領域、表の構造、日付は変換しない）。
+// 画面の文言と構造: プラン 4.4「フロント（TypeScript）」（画面の状態ごとの表示、日付は変換しない）と、カード表示のプラン 4.4（PR①）。
 // 実行の前提: プラン 4.5「E2E」（zero_e2e、API は利用者A で起動、beforeEach でデータを入れ替える）。
 // mock は境界の外側（ブラウザから見たネットワーク = page.route）にだけ使う。
 
@@ -34,7 +46,8 @@ const HOLDINGS_API = '**/api/holdings'
 
 // ---- 画面の文言（要件 FR-6・7・10・21・22、プラン 4.4） ----
 const PAGE_TITLE = '保有株式一覧'
-const TOTAL_LABEL = '合計評価額'
+/** 合計の欄の見出し（カード表示で「合計評価額」から「合計」になった。要件 holdings-cards.md の要件11）。 */
+const TOTAL_LABEL = SUMMARY_LABEL
 const UNPRICED_NOTE = '価格を取得できない銘柄を含みません'
 const EMPTY_MESSAGE = '保有株式はありません'
 const UNAVAILABLE = '取得できません'
@@ -42,20 +55,6 @@ const REFRESH_BUTTON = '価格を今すぐ更新'
 const LOADING_LABEL = '読み込み中'
 const FETCH_ERROR_MESSAGE = '保有株式の取得に失敗しました'
 const CLOSE_BUTTON = '閉じる'
-/**
- * 表の列見出し（要件 FR-3 の順の7列と、値段の更新の PR② で足された8列目「操作」。プラン 4.4「画面」の表の8列目）。
- * 8列目の見出しは、画面には出さず支援技術にだけ読ませる。
- */
-const COLUMN_HEADERS = [
-  '銘柄コード',
-  '銘柄名',
-  '保有数量',
-  '取得価格',
-  '現在の価格',
-  '価格の基準日',
-  '評価額',
-  '操作',
-]
 
 // ---- テストデータ（要件「成功基準」の銘柄マスタとダミー価格） ----
 // 価格はダミーの取得元を通さず、「保存済み」の状態として DB に直接入れる。
@@ -73,37 +72,27 @@ const SONY_PRICE: StockPriceSeed = { code: '6758', tradingDate: '2026-10-06', cl
 /** 9984 を50株（数量・取得価格は AC にないので任意の値）。9984 の価格は入れない（一度も保存されていない）。 */
 const SOFTBANK_50: TradeSeed = { code: '9984', side: 'buy', quantity: 50, price: '4500.0', tradeDate: BUY_DATE }
 
-/** AC-1: 7203 の行の7つのセル（要件 AC-1 の値そのまま）。 */
-const TOYOTA_ROW = ['7203', 'トヨタ自動車', '100株', '2,500円', '3,000円', '2026-10-06', '300,000円']
+/** AC-1: 7203 のカードの7つの項目（要件 AC-1 の値そのまま。銘柄コード・銘柄名・保有数量・取得価格・現在の価格・価格の基準日・評価額）。 */
+const TOYOTA_ROW = ['7203', 'トヨタ自動車', '100株', '2,500円', '3,000円', '2026-10-06', '300,000円'] as const
 
 // ---- 画面の要素（プラン 4.4 の文言と構造） ----
 function holdingsHeading(page: Page): Locator {
   return page.getByRole('heading', { name: PAGE_TITLE, exact: true })
 }
 
-/** 合計の領域（<section aria-label="合計評価額">）。 */
+/** 合計の欄（region「合計」）。 */
 function totalRegion(page: Page): Locator {
-  return page.getByRole('region', { name: TOTAL_LABEL, exact: true })
+  return summaryRegion(page)
 }
 
+/** カードの並び（<ul aria-label="保有株式">）。一覧が表示されているかを見るのに使う（表はなくなった）。 */
 function holdingsTable(page: Page): Locator {
-  return page.getByRole('table')
+  return cardList(page)
 }
 
-/** 銘柄コードのセルが code と一致するデータ行。 */
+/** 銘柄コードが code のカード。 */
 function holdingRow(page: Page, code: string): Locator {
-  return holdingsTable(page)
-    .getByRole('row')
-    .filter({ has: page.getByRole('cell', { name: code, exact: true }) })
-}
-
-/**
- * 行のデータの7セル（銘柄コード・銘柄名・保有数量・取得価格・現在の価格・価格の基準日・評価額）。
- * 値段の更新の PR② で行の右端に「⋯」の8列目が足されたので、先頭の7つのセルだけを選ぶ
- * （プラン 4.5「既存のテストで変えるもの」、判断10。price-update.spec.ts の dataCells と同じ）。
- */
-function dataCells(row: Locator): Locator {
-  return row.locator('td:nth-child(-n+7)')
+  return holdingCard(page, code)
 }
 
 function errorDialog(page: Page): Locator {
@@ -148,10 +137,10 @@ async function expectFetchErrorDialogAndNothingAfterClose(page: Page): Promise<v
   await expect(holdingsHeading(page)).toBeVisible()
   await expect(holdingsTable(page)).toHaveCount(0)
   await expect(totalRegion(page)).toHaveCount(0)
-  await expect(page.getByText(TOTAL_LABEL)).toHaveCount(0)
+  await expect(page.getByText(TOTAL_LABEL, { exact: true })).toHaveCount(0)
 }
 
-test('AC-1・補助 FR-14（TC-25）: 7203 の行に「7203 / トヨタ自動車 / 100株 / 2,500円 / 3,000円 / 2026-10-06 / 300,000円」が表示される（America/Los_Angeles でも日付が変わらない）', async ({ page }) => {
+test('AC-1・補助 FR-14（TC-25）: 7203 のカードに「7203 / トヨタ自動車 / 100株 / 2,500円 / 3,000円 / 2026-10-06 / 300,000円」が表示される（America/Los_Angeles でも日付が変わらない）', async ({ page }) => {
   // Given: 利用者Aが 7203 を100株、取得価格2,500円で保有し、7203 の価格（3,000円・2026-10-06）が保存済み。
   await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
 
@@ -164,10 +153,10 @@ test('AC-1・補助 FR-14（TC-25）: 7203 の行に「7203 / トヨタ自動車
   ).toBe(BROWSER_TIMEZONE)
 
   await expect(holdingsHeading(page)).toBeVisible()
-  // 列の並び（要件 FR-3 の7列と、8列目の「操作」）。
-  await expect(holdingsTable(page).getByRole('columnheader')).toHaveText(COLUMN_HEADERS)
-  // 7203 の行のデータの7セル（AC-1。8列目の「⋯」は含めない）。価格の基準日は 2026-10-06 のまま（TC-25）。
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
+  // 表（列見出し）はなくなり、カードの並びになった（holdings-cards.md の要件1。カードの中身の順は holdings-cards.spec.ts の基準1）。
+  await expect(page.getByRole('table')).toHaveCount(0)
+  // 7203 のカードの7つの項目（AC-1）。価格の基準日は 2026-10-06 のまま（TC-25）。
+  await expectCardData(holdingRow(page, '7203'), TOYOTA_ROW)
 })
 
 test('AC-3: ダッシュボードでリンク「保有株式一覧」を押すと /holdings が表示される', async ({ page }) => {
@@ -179,7 +168,7 @@ test('AC-3: ダッシュボードでリンク「保有株式一覧」を押す�
   await expect(holdingsHeading(page)).toBeVisible()
 })
 
-test('AC-7: 7203 を100株、6758 を10株保有し、両方の価格が保存済みのとき、合計評価額に 335,000円 が表示される', async ({ page }) => {
+test('AC-7: 7203 を100株、6758 を10株保有し、両方の価格が保存済みのとき、合計の欄の評価額に 335,000円 が表示される', async ({ page }) => {
   // Given: 7203（100株 × 3,000円）と 6758（10株 × 3,500円）。合計 300,000円 + 35,000円 = 335,000円。
   await insertHoldingsData({
     trades: [TOYOTA_100, SONY_10],
@@ -190,11 +179,12 @@ test('AC-7: 7203 を100株、6758 を10株保有し、両方の価格が保存�
 
   const total = totalRegion(page)
   await expect(total).toContainText(amountPattern('335,000円'))
-  // 合計の領域に「合計評価額」の文字がある（プラン 4.4「合計の領域」）。
-  await expect(total).toContainText(TOTAL_LABEL)
+  // 合計の欄の評価額の見出し「評価額」と、欄の見出し「合計」がある（カード表示のプラン 4.4「合計の欄」）。
+  await expect(total.getByText('評価額', { exact: true })).toBeVisible()
+  await expect(total.getByRole('heading', { level: 2, name: TOTAL_LABEL, exact: true })).toBeVisible()
 })
 
-test('AC-8: 7203（価格あり）と 9984（価格なし）を保有しているとき、合計評価額に 300,000円 と「価格を取得できない銘柄を含みません」が表示される', async ({ page }) => {
+test('AC-8: 7203（価格あり）と 9984（価格なし）を保有しているとき、合計の欄の評価額に 300,000円 と「価格を取得できない銘柄を含みません」が表示される', async ({ page }) => {
   // Given: 7203 を100株（価格保存済み）、9984（価格未保存）。
   await insertHoldingsData({
     trades: [TOYOTA_100, SOFTBANK_50],
@@ -205,7 +195,7 @@ test('AC-8: 7203（価格あり）と 9984（価格なし）を保有してい�
 
   const total = totalRegion(page)
   await expect(total).toContainText(amountPattern('300,000円'))
-  // 注記は合計評価額の近く（合計の領域の中。プラン 4.4）に出る。
+  // 注記は合計の欄の中（その通貨の部分。カード表示のプラン 4.4）に出る。
   await expect(total).toContainText(UNPRICED_NOTE)
 })
 
@@ -218,21 +208,21 @@ test('AC-8a: 全銘柄の価格が保存済みのとき、「価格を取得で�
 
   await page.goto(HOLDINGS_PATH)
 
-  // 先に合計評価額が出る（取得が終わった）のを待ってから、注記がないことを確かめる（プラン 4.5）。
+  // 先に合計の欄が出る（取得が終わった）のを待ってから、注記がないことを確かめる（プラン 4.5）。
   await expect(totalRegion(page)).toContainText(amountPattern('335,000円'))
   await expect(page.getByText(UNPRICED_NOTE)).toHaveCount(0)
 })
 
-test('AC-9: 1件も保有していないとき、「保有株式はありません」が表示され、合計評価額は表示されない', async ({ page }) => {
+test('AC-9: 1件も保有していないとき、「保有株式はありません」が表示され、合計の欄は表示されない', async ({ page }) => {
   // Given: 利用者Aの売買履歴なし（beforeEach で消したまま）。
 
   await page.goto(HOLDINGS_PATH)
 
-  // 先に空のメッセージが出る（取得が終わった）のを待ってから、合計評価額がないことを確かめる（プラン 4.5）。
+  // 先に空のメッセージが出る（取得が終わった）のを待ってから、合計の欄がないことを確かめる（プラン 4.5）。
   await expect(page.getByText(EMPTY_MESSAGE)).toBeVisible()
   await expect(totalRegion(page)).toHaveCount(0)
-  await expect(page.getByText(TOTAL_LABEL)).toHaveCount(0)
-  // 0件のときは表も出さない（プラン 4.4 の状態の表）。
+  await expect(page.getByText(TOTAL_LABEL, { exact: true })).toHaveCount(0)
+  // 0件のときはカードの並びも出さない（プラン 4.4 の状態の表）。
   await expect(holdingsTable(page)).toHaveCount(0)
 })
 
@@ -247,18 +237,18 @@ const APPLE_PRICE: StockPriceSeed = { code: 'AAPL', tradingDate: '2026-10-06', c
 /** MSFT を5株、取得価格400.00ドル（価格は入れない。ドルの価格なしの銘柄）。 */
 const MICROSOFT_5: TradeSeed = { code: 'MSFT', side: 'buy', quantity: 5, price: '400.00', tradeDate: BUY_DATE }
 
-/** 合計の領域の中の、通貨ごとの行（<li>）。 */
+/** 合計の欄の、通貨ごとの部分（region「円」「ドル」）。順は DOM の順。 */
 function totalRows(page: Page): Locator {
-  return totalRegion(page).getByRole('listitem')
+  return totalRegion(page).getByRole('region')
 }
 
-test('基準9（要件1・要件11・要件14）: AAPL を「買 150.25ドル 10株」で保有し、価格が保存済みのとき、AAPL の行に「AAPL / Apple / 10株 / 150.25ドル / 180.00ドル / 2026-10-06 / 1,800.00ドル」が表示される', async ({ page }) => {
+test('基準9（要件1・要件11・要件14）: AAPL を「買 150.25ドル 10株」で保有し、価格が保存済みのとき、AAPL のカードに「AAPL / Apple / 10株 / 150.25ドル / 180.00ドル / 2026-10-06 / 1,800.00ドル」が表示される', async ({ page }) => {
   // Given: 利用者Aの売買履歴が AAPL「買 150.25ドル 10株 2026-01-10」で、AAPL の価格（180.00ドル・2026-10-06）が保存済み。
   await insertHoldingsData({ stocks: [APPLE], trades: [APPLE_10], prices: [APPLE_PRICE] })
 
   await page.goto(HOLDINGS_PATH)
 
-  await expect(dataCells(holdingRow(page, 'AAPL'))).toHaveText([
+  await expectCardData(holdingRow(page, 'AAPL'), [
     'AAPL',
     'Apple',
     '10株',
@@ -269,7 +259,7 @@ test('基準9（要件1・要件11・要件14）: AAPL を「買 150.25ドル 10
   ])
 })
 
-test('基準10（要件12）: 7203（100株・2,500円）と AAPL（10株・150.25ドル）を保有し、どちらも価格が保存済みのとき、合計評価額に「300,000円」と「1,800.00ドル」がこの順に表示され、「価格を取得できない銘柄を含みません」は表示されない', async ({ page }) => {
+test('基準10（要件12）: 7203（100株・2,500円）と AAPL（10株・150.25ドル）を保有し、どちらも価格が保存済みのとき、合計の欄の評価額に「300,000円」と「1,800.00ドル」がこの順に表示され、「価格を取得できない銘柄を含みません」は表示されない', async ({ page }) => {
   await insertHoldingsData({
     stocks: [APPLE],
     trades: [TOYOTA_100, APPLE_10],
@@ -278,16 +268,18 @@ test('基準10（要件12）: 7203（100株・2,500円）と AAPL（10株・150.
 
   await page.goto(HOLDINGS_PATH)
 
-  // 先に合計評価額が出る（取得が終わった）のを待ってから、注記がないことを確かめる（プラン 4.5）。
+  // 先に合計の欄が出る（取得が終わった）のを待ってから、注記がないことを確かめる（プラン 4.5）。
   await expect(totalRegion(page)).toContainText(amountPattern('300,000円'))
-  // 通貨ごとに1行ずつ、円、ドルの順（4.7: 合計の領域の <ul> の <li>）。
+  // 通貨ごとの部分が円、ドルの順に2つ（カード表示のプラン 4.4: 合計の欄の region「円」「ドル」）。
   await expect(totalRows(page)).toHaveCount(2)
   await expect(totalRows(page).nth(0)).toContainText(amountPattern('300,000円'))
   await expect(totalRows(page).nth(1)).toContainText(amountPattern('1,800.00ドル'))
+  await expect(currencyPart(page, '円')).toContainText(amountPattern('300,000円'))
+  await expect(currencyPart(page, 'ドル')).toContainText(amountPattern('1,800.00ドル'))
   await expect(page.getByText(UNPRICED_NOTE)).toHaveCount(0)
 })
 
-test('基準11（要件12・要件13）: 7203（価格あり）と MSFT（価格なし）を保有しているとき、合計評価額は「300,000円」の行（注記なし）と、「0.00ドル」と「価格を取得できない銘柄を含みません」の行になる', async ({ page }) => {
+test('基準11（要件12・要件13）: 7203（価格あり）と MSFT（価格なし）を保有しているとき、合計の欄の評価額は「300,000円」の部分（注記なし）と、「0.00ドル」と「価格を取得できない銘柄を含みません」の部分になる', async ({ page }) => {
   // Given: 7203「買 2,500円 100株」（価格保存済み）と MSFT「買 400.00ドル 5株」（価格なし）。
   await insertHoldingsData({
     stocks: [MICROSOFT],
@@ -298,16 +290,16 @@ test('基準11（要件12・要件13）: 7203（価格あり）と MSFT（価格
   await page.goto(HOLDINGS_PATH)
 
   await expect(totalRows(page)).toHaveCount(2)
-  // 円の行: 300,000円。「価格を取得できない銘柄を含みません」はない。
+  // 円の部分: 300,000円。「価格を取得できない銘柄を含みません」はない。
   await expect(totalRows(page).nth(0)).toContainText(amountPattern('300,000円'))
   await expect(totalRows(page).nth(0)).not.toContainText(UNPRICED_NOTE)
-  // ドルの行: 0.00ドル と「価格を取得できない銘柄を含みません」（その通貨の行の中）。
+  // ドルの部分: 0.00ドル と「価格を取得できない銘柄を含みません」（その通貨の部分の中）。
   await expect(totalRows(page).nth(1)).toContainText(amountPattern('0.00ドル'))
   await expect(totalRows(page).nth(1)).toContainText(UNPRICED_NOTE)
-  // 注記は、価格のないドルの行の1か所だけ。
+  // 注記は、価格のないドルの部分の1か所だけ。
   await expect(page.getByText(UNPRICED_NOTE)).toHaveCount(1)
-  // MSFT の行の価格の3列は「取得できません」で、ドルの取得価格は小数2桁で表示される。
-  await expect(dataCells(holdingRow(page, 'MSFT'))).toHaveText([
+  // MSFT のカードの価格の3項目は「取得できません」で、ドルの取得価格は小数2桁で表示される。
+  await expectCardData(holdingRow(page, 'MSFT'), [
     'MSFT',
     'Microsoft',
     '5株',
@@ -318,7 +310,7 @@ test('基準11（要件12・要件13）: 7203（価格あり）と MSFT（価格
   ])
 })
 
-test('基準7（要件10）: 7203 を買って売り切っただけのとき、「保有株式はありません」が表示され、合計評価額・「価格を今すぐ更新」・「⋯」は表示されない', async ({ page }) => {
+test('基準7（要件10）: 7203 を買って売り切っただけのとき、「保有株式はありません」が表示され、合計の欄・「価格を今すぐ更新」・「⋯」は表示されない', async ({ page }) => {
   // Given: 利用者Aの売買履歴が 7203「買 2,000円 100株 2026-01-10」「売 2,500円 100株 2026-02-10」だけ（保有数量が0）。
   await insertHoldingsData({
     trades: [
@@ -332,8 +324,9 @@ test('基準7（要件10）: 7203 を買って売り切っただけのとき、�
   // 先に空のメッセージが出る（取得が終わった）のを待ってから、ないことを確かめる（プラン 4.5）。
   await expect(page.getByText(EMPTY_MESSAGE)).toBeVisible()
   await expect(totalRegion(page)).toHaveCount(0)
-  await expect(page.getByText(TOTAL_LABEL)).toHaveCount(0)
+  await expect(page.getByText(TOTAL_LABEL, { exact: true })).toHaveCount(0)
   await expect(holdingsTable(page)).toHaveCount(0)
+  await expect(holdingCards(page)).toHaveCount(0)
   // 値段の更新の要件1: 保有のない一覧には「価格を今すぐ更新」も「⋯」も出さない（網羅の指摘23）。
   await expect(page.getByRole('button', { name: REFRESH_BUTTON, exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /の操作$/ })).toHaveCount(0)
@@ -356,7 +349,7 @@ test('補助（基準4 の画面。プラン 5.3）: 売買履歴を「買 2,000
 
   await page.goto(HOLDINGS_PATH)
 
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText([
+  await expectCardData(holdingRow(page, '7203'), [
     '7203',
     'トヨタ自動車',
     '110株',
@@ -367,7 +360,7 @@ test('補助（基準4 の画面。プラン 5.3）: 売買履歴を「買 2,000
   ])
 })
 
-test('AC-9b: 一覧の API が HTTP 500 を返すとき、「保有株式の取得に失敗しました」のダイアログが表示され、「閉じる」を押すと閉じて一覧と合計評価額は表示されない', async ({ page }) => {
+test('AC-9b: 一覧の API が HTTP 500 を返すとき、「保有株式の取得に失敗しました」のダイアログが表示され、「閉じる」を押すと閉じて一覧と合計の欄は表示されない', async ({ page }) => {
   // DB には売買履歴を入れておく（API が成功すれば一覧が出るデータにして、「表示されない」が空のデータのせいでないようにする）。
   await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   // Given: 一覧の API がエラー（HTTP 500。本文はプラン 4.4「API」の失敗時の形）を返す。
@@ -393,9 +386,9 @@ test('AC-11: 9984 の価格が一度も保存されていないとき、9984 の
 
   await page.goto(HOLDINGS_PATH)
 
-  // 9984 の行: 現在の価格・価格の基準日・評価額の3つのセルが「取得できません」（FR-10）。
-  // ほかのセルは FR-3・12・13 のとおり（銘柄名は銘柄マスタから。FR-20）。
-  await expect(dataCells(holdingRow(page, '9984'))).toHaveText([
+  // 9984 のカード: 現在の価格・価格の基準日・評価額の3つの項目が「取得できません」（FR-10）。
+  // ほかの項目は FR-3・12・13 のとおり（銘柄名は銘柄マスタから。FR-20）。
+  await expectCardData(holdingRow(page, '9984'), [
     '9984',
     'ソフトバンクグループ',
     '50株',
@@ -404,8 +397,8 @@ test('AC-11: 9984 の価格が一度も保存されていないとき、9984 の
     UNAVAILABLE,
     UNAVAILABLE,
   ])
-  // 7203 の行は通常どおり（AC-1 のとおり）。
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
+  // 7203 のカードは通常どおり（AC-1 のとおり）。
+  await expectCardData(holdingRow(page, '7203'), TOYOTA_ROW)
 })
 
 test('基準31（非機能1。保有株式一覧の AC-18 を置き換える）: 100銘柄（円50・ドル50。すべて価格が保存済み）を売買履歴各20件で保有しているとき、/holdings を開いてから2秒以内に一覧が表示される（計測値を annotation と console.log に残す）', async ({ page, browser }) => {
@@ -447,7 +440,7 @@ test('基準31（非機能1。保有株式一覧の AC-18 を置き換える）:
 
   // ウォームアップ: 一度 /holdings を開いて捨てる（dev サーバーの初回の変換などを計測に含めない。プラン 5.3）。
   await page.goto(HOLDINGS_PATH)
-  await expect(page.locator('tbody tr')).toHaveCount(allCodes.length)
+  await expect(holdingCards(page)).toHaveCount(allCodes.length)
   await page.close()
 
   // 計測: 新しいブラウザコンテキストで開き直す（ウォームアップのページのキャッシュを使わない）。
@@ -455,9 +448,10 @@ test('基準31（非機能1。保有株式一覧の AC-18 を置き換える）:
   try {
     const measuredPage = await context.newPage()
     await measuredPage.goto(HOLDINGS_PATH)
-    // 一覧の行が100行そろった時点の performance.now()（このページを開き始めてからの経過ミリ秒）を、描画のフレームごとに確かめる。
+    // カードが100枚そろった時点の performance.now()（このページを開き始めてからの経過ミリ秒）を、描画のフレームごとに確かめる。
     const shownAt = await measuredPage.waitForFunction(
-      (rowCount) => document.querySelectorAll('tbody tr').length >= rowCount && performance.now(),
+      (cardCount) =>
+        document.querySelectorAll('ul[aria-label="保有株式"] > li').length >= cardCount && performance.now(),
       allCodes.length,
       { polling: 'raf' },
     )
@@ -471,16 +465,16 @@ test('基準31（非機能1。保有株式一覧の AC-18 を置き換える）:
     console.log(`基準31 計測値: ${summary}`)
 
     expect(elapsedMs).toBeLessThanOrEqual(2000)
-    // 出ていたのは入れた100銘柄の一覧（行が余分に出ていない）。円とドルの合計が1行ずつ出ている。
-    await expect(measuredPage.locator('tbody tr')).toHaveCount(allCodes.length)
-    await expect(measuredPage.getByRole('region', { name: TOTAL_LABEL, exact: true }).getByRole('listitem')).toHaveCount(2)
+    // 出ていたのは入れた100銘柄の一覧（カードが余分に出ていない）。合計の欄に円とドルの部分が1つずつ出ている。
+    await expect(holdingCards(measuredPage)).toHaveCount(allCodes.length)
+    await expect(measuredPage.getByRole('region', { name: TOTAL_LABEL, exact: true }).getByRole('region')).toHaveCount(2)
   } finally {
     await context.close()
   }
 })
 
-test('補助 FR-6（TC-13）: 価格のない 9984 だけを保有しているとき、合計評価額に 0円 と「価格を取得できない銘柄を含みません」が表示される', async ({ page }) => {
-  // Given: すべての行に価格がない（プラン 4.4「合計の領域」: 0円 と注記を出す）。
+test('補助 FR-6（TC-13）: 価格のない 9984 だけを保有しているとき、合計の欄の評価額に 0円 と「価格を取得できない銘柄を含みません」が表示される', async ({ page }) => {
+  // Given: すべての行に価格がない（カード表示のプラン 4.4「合計の欄」: 評価額は 0円、含み損益は「取得できません」、注記を出す）。
   await insertHoldingsData({ trades: [SOFTBANK_50] })
 
   await page.goto(HOLDINGS_PATH)
@@ -490,7 +484,7 @@ test('補助 FR-6（TC-13）: 価格のない 9984 だけを保有している�
   await expect(total).toContainText(UNPRICED_NOTE)
 })
 
-test('補助 FR-22（TC-15）: 一覧の API への通信が失敗したとき、AC-9b と同じダイアログが表示され、閉じた後は一覧と合計評価額は表示されない', async ({ page }) => {
+test('補助 FR-22（TC-15）: 一覧の API への通信が失敗したとき、AC-9b と同じダイアログが表示され、閉じた後は一覧と合計の欄は表示されない', async ({ page }) => {
   await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
   // Given: 一覧の API への通信がエラーになる（応答が返らない）。
   await page.route(HOLDINGS_API, (route) => route.abort())
@@ -503,7 +497,7 @@ test('補助 FR-22（TC-15）: 一覧の API への通信が失敗したとき�
 test('補助 FR-21（SR-15、TC-32）: 一度表示した後にダッシュボードから開き直すと、キャッシュを出さずに「読み込み中」から始まる', async ({ page }) => {
   await insertHoldingsData({ trades: [TOYOTA_100], prices: [TOYOTA_PRICE] })
 
-  // 1回目: ダッシュボードからリンクで /holdings を開き、表が出るのを待つ。
+  // 1回目: ダッシュボードからリンクで /holdings を開き、カードの並びが出るのを待つ。
   await page.goto(DASHBOARD_PATH)
   await holdingsLink(page).click()
   await expect(holdingsTable(page)).toBeVisible()
@@ -533,21 +527,22 @@ test('補助 FR-21（SR-15、TC-32）: 一度表示した後にダッシュボ�
   }
 
   // 応答が返ると一覧が出て、「読み込み中」のアイコンは消える。
-  await expect(dataCells(holdingRow(page, '7203'))).toHaveText(TOYOTA_ROW)
+  await expectCardData(holdingRow(page, '7203'), TOYOTA_ROW)
   await expect(loadingStatus(page)).toHaveCount(0)
 })
 
-test('補助 FR-5（PR4_TC03）: 9984・7203・6758 の順に売買履歴を入れても、表は銘柄コードの昇順（6758、7203、9984）で表示される', async ({ page }) => {
+test('補助 FR-5（PR4_TC03）: 9984・7203・6758 の順に売買履歴を入れても、カードは銘柄コードの昇順（6758、7203、9984）で表示される', async ({ page }) => {
   // Given: 売買履歴を 9984 → 7203 → 6758 の順に入れる（入れた順が昇順と逆になるようにする）。
   // 価格はどの銘柄にも入れない（価格の有無で並びが変わる誤りと見分けがつかなくならないよう、条件をそろえる）。
   await insertHoldingsData({ trades: [SOFTBANK_50, TOYOTA_100, SONY_10] })
 
   await page.goto(HOLDINGS_PATH)
 
-  // 表の1列目（銘柄コード。プラン 4.4「表」: データ行は <tbody> の中に <td> を7つ）が昇順。
-  await expect(
-    holdingsTable(page).locator('tbody tr > td:first-child'),
-  ).toHaveText(['6758', '7203', '9984'])
+  // カードの並び（<ul aria-label="保有株式"> の <li> の DOM の順。一度も並べ替えていないので銘柄コードの昇順。要件26）。
+  await expect(holdingCards(page)).toHaveCount(3)
+  await expect(holdingCards(page).nth(0)).toContainText('6758')
+  await expect(holdingCards(page).nth(1)).toContainText('7203')
+  await expect(holdingCards(page).nth(2)).toContainText('9984')
 })
 
 test('補助 FR-22（PR4_SR1・PR4_EC1）: ブラウザがオフラインと判定しているときにダッシュボードからリンクで開くと、読み込み中のまま止まらずに取得失敗のダイアログが表示される', async ({ page }) => {

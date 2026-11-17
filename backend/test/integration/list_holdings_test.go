@@ -55,9 +55,24 @@ func Test基準6_売り切った銘柄は一覧に出さず合計評価額に含
 		t.Errorf("6758 の評価額（0.01 単位）: got %v, want 3500000（35,000円）", h.ValuationHundredths)
 	}
 	// 合計は円の1件だけ（ドルの行はない）。価格のない 7203 は売り切っていて、注記（ExcludesUnpriced）の対象にならない。
-	wantTotals := []dto.CurrencyTotal{{Currency: dto.CurrencyJPY, ValuationHundredths: 3500000, ExcludesUnpriced: false}}
-	if !slices.Equal(got.Totals, wantTotals) {
-		t.Errorf("Totals: got %+v, want %+v", got.Totals, wantTotals)
+	// 含み損益と率（ポインタ）は値で比べる（slices.Equal はアドレスで比べるので使わない。カード表示のプラン 5.2）。
+	// 6758: 取得額 32,000円・評価額 35,000円 → +3,000円（300000）・9.375% を四捨五入して 9.4%（94）。
+	if len(got.Totals) != 1 {
+		t.Fatalf("Totals の件数: got %d, want 1（円だけ）", len(got.Totals))
+	}
+	total := got.Totals[0]
+	if total.Currency != dto.CurrencyJPY || total.ValuationHundredths != 3500000 || total.ExcludesUnpriced {
+		t.Errorf("Totals[0]: got %+v, want 円・評価額 3500000・注記なし", total)
+	}
+	if total.UnrealizedGainHundredths == nil || *total.UnrealizedGainHundredths != 300000 {
+		t.Errorf("Totals[0] の含み損益（0.01 単位）: got %v, want 300000（+3,000円）", total.UnrealizedGainHundredths)
+	}
+	if total.UnrealizedGainRateTenths == nil || *total.UnrealizedGainRateTenths != 94 {
+		t.Errorf("Totals[0] の率（0.1%% 単位）: got %v, want 94（9.4%%）", total.UnrealizedGainRateTenths)
+	}
+	if h.UnrealizedGainHundredths == nil || *h.UnrealizedGainHundredths != 300000 ||
+		h.UnrealizedGainRateTenths == nil || *h.UnrealizedGainRateTenths != 94 {
+		t.Errorf("6758 の含み損益・率: got %v・%v, want 300000・94", h.UnrealizedGainHundredths, h.UnrealizedGainRateTenths)
 	}
 }
 

@@ -45,13 +45,21 @@ type Holding struct {
 	CurrentPriceHundredths     *int64  // 価格が一度も保存されていなければ nil
 	PriceDate                  *string // "YYYY-MM-DD"。価格が一度も保存されていなければ nil
 	ValuationHundredths        *int64  // 評価額。円は1円未満を切り捨てた値（100の倍数）、ドルはそのまま。価格が一度も保存されていなければ nil
+	// 表示する含み損益（0.01 単位。円は100の倍数。カード表示の要件7・要件8）。価格が一度も保存されていなければ nil
+	UnrealizedGainHundredths *int64
+	// 含み損益の率（0.1% 単位。20.0% は 200、-12.5% は -125。要件9）。表示する含み損益が0なら0。価格が一度も保存されていなければ nil
+	UnrealizedGainRateTenths *int64
 }
 
-// CurrencyTotal は、1つの通貨の合計評価額（要件12・13。通貨をまたいで足さない）。
+// CurrencyTotal は、1つの通貨の合計評価額と含み損益の合計（要件12・13。通貨をまたいで足さない）。
 type CurrencyTotal struct {
 	Currency            Currency
 	ValuationHundredths int64 // その通貨の、評価額のある行の合計
-	ExcludesUnpriced    bool  // その通貨に、価格のない行が1件以上ある（合計評価額にその銘柄を含まない）
+	ExcludesUnpriced    bool  // その通貨に、価格のない行が1件以上ある（合計評価額・含み損益の合計にその銘柄を含まない）
+	// その通貨の、価格のある銘柄の、表示する含み損益の和（カード表示の要件13）。価格のある銘柄がなければ nil
+	UnrealizedGainHundredths *int64
+	// その通貨の、丸める前の含み損益の和 ÷ 取得額の和 × 100 を 0.1% 単位に丸めた値。含み損益の和が0なら0。価格のある銘柄がなければ nil
+	UnrealizedGainRateTenths *int64
 }
 
 // HoldingsList は、利用者の保有株式一覧。

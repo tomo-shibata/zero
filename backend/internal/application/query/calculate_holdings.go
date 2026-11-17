@@ -15,7 +15,7 @@ var (
 	// ErrNegativeQuantity は、売買履歴をたどる途中で、保有数量が負になる銘柄があること（要件9 を破る売買履歴）。
 	// 取り込みは多すぎる売りを入れないので、起きるのは seed や SQL で手で入れたときだけ。誤った一覧を返さないためにエラーにする。
 	ErrNegativeQuantity = errors.New("保有数量が負になる売買履歴があります")
-	// ErrCalculationOverflow は、一覧の最後の値（保有数量・取得価格・評価額・合計評価額）が int64 に収まらないこと。
+	// ErrCalculationOverflow は、一覧の最後の値（保有数量・取得価格・評価額・合計評価額・含み損益・率とその合計）が int64 に収まらないこと。
 	ErrCalculationOverflow = errors.New("int64 に収まりません")
 )
 
@@ -41,6 +41,8 @@ const (
 //     合計評価額は、通貨ごとに、その通貨の評価額のある行を足す（要件12・13。為替の換算はしない）。
 //     価格のない行がある通貨は、その通貨の ExcludesUnpriced を true にする。
 //     Totals は、保有のある通貨だけを、円、ドルの順に入れる。
+//  6. 価格のある行には、含み損益と率を付ける（unrealized_gain.go。カード表示の要件7〜10）。
+//     通貨ごとの含み損益の合計は、価格のある行の表示する含み損益の和、率は丸める前の値の和から出す（要件13）。
 //
 // 計算は math/big で行い、桁あふれしないようにする。保有数量が途中で負になる銘柄があれば ErrNegativeQuantity、
 // 最後の値が int64 に収まらなければ ErrCalculationOverflow を（包んで）返す。値そのものは資産の額なので、エラー（ログ）には入れない。
@@ -56,90 +58,123 @@ func CalculateHoldings(rows []dto.TradeRow) (dto.HoldingsList, error) {
 	// slices.Sorted は文字列を < で比べるので、Go の文字列としての昇順（"1301" < "130A" < "7203"）になる。
 	// あふれる銘柄が複数あっても、毎回同じ銘柄をエラーに入れるため、エラーもこの順に見つける。
 	for _, code := range slices.Sorted(maps.Keys(byCode)) {
-		h, valuation, held, err := calculateStock(byCode[code])
+		s, held, err := calculateStock(byCode[code])
 		if err != nil {
 			return dto.HoldingsList{}, fmt.Errorf("銘柄 %q: %w", code, err)
 		}
 		if !held {
 			continue
 		}
+		h := s.holding
 		list.Holdings = append(list.Holdings, h)
 		t := totals[h.Currency]
 		if t == nil {
-			t = &currencyTotal{valuation: new(big.Int)}
+			t = &currencyTotal{valuation: new(big.Int), gain: newGainTotal()}
 			totals[h.Currency] = t
 		}
-		if valuation == nil {
+		if s.valuation == nil {
 			t.excludesUnpriced = true
 			continue
 		}
-		t.valuation.Add(t.valuation, valuation)
+		t.valuation.Add(t.valuation, s.valuation)
+		t.hasPriced = true
+		t.gain.add(s.gain)
 		// 足すたびに確かめ、収まらなくなった銘柄をエラーに入れる。評価額は負にならないので、途中で収まらなければ最後の値も収まらない。
+		// （含み損益の合計は符号が変わるので、途中ではなく最後に確かめる。buildTotals）
 		if !t.valuation.IsInt64() {
 			return dto.HoldingsList{}, fmt.Errorf("銘柄 %q までの%s の合計評価額: %w", code, h.Currency, ErrCalculationOverflow)
 		}
 	}
-	list.Totals = buildTotals(totals)
+	var err error
+	list.Totals, err = buildTotals(totals)
+	if err != nil {
+		return dto.HoldingsList{}, err
+	}
 	return list, nil
 }
 
 // buildTotals は、通貨ごとの合計 totals から、保有のある通貨だけを、円、ドルの順に並べた一覧を返す。
 // 保有のある通貨がなければ、nil ではなく空のスライスを返す。
-func buildTotals(totals map[dto.Currency]*currencyTotal) []dto.CurrencyTotal {
+// 価格のある銘柄がない通貨は、含み損益の合計と率を nil にする（カード表示の要件16）。含み損益の合計が int64 に収まらなければ ErrCalculationOverflow を返す。
+func buildTotals(totals map[dto.Currency]*currencyTotal) ([]dto.CurrencyTotal, error) {
 	result := []dto.CurrencyTotal{}
 	for _, currency := range []dto.Currency{dto.CurrencyJPY, dto.CurrencyUSD} {
-		if t := totals[currency]; t != nil {
-			result = append(result, dto.CurrencyTotal{
-				Currency:            currency,
-				ValuationHundredths: t.valuation.Int64(),
-				ExcludesUnpriced:    t.excludesUnpriced,
-			})
+		t := totals[currency]
+		if t == nil {
+			continue
 		}
+		total := dto.CurrencyTotal{
+			Currency:            currency,
+			ValuationHundredths: t.valuation.Int64(),
+			ExcludesUnpriced:    t.excludesUnpriced,
+		}
+		if t.hasPriced {
+			if err := t.gain.apply(&total); err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, total)
 	}
-	return result
+	return result, nil
 }
 
-// currencyTotal は、1つの通貨の合計評価額を足していく途中の値。
+// currencyTotal は、1つの通貨の合計評価額と含み損益の合計を足していく途中の値。
 type currencyTotal struct {
-	valuation        *big.Int // 評価額のある行の合計（0.01 単位）
-	excludesUnpriced bool     // 価格のない行が1件以上ある
+	valuation        *big.Int   // 評価額のある行の合計（0.01 単位）
+	gain             *gainTotal // 価格のある行の含み損益の合計
+	hasPriced        bool       // 価格のある行が1件以上ある
+	excludesUnpriced bool       // 価格のない行が1件以上ある
+}
+
+// calculatedStock は、1銘柄の計算の結果。
+type calculatedStock struct {
+	holding   dto.Holding
+	valuation *big.Int   // 評価額（0.01 単位。円は1円未満を切り捨てた値）。価格がなければ nil
+	gain      *stockGain // 丸める前の含み損益と取得額（合計に足す元）。価格がなければ nil
 }
 
 // calculateStock は、同じ銘柄の売買履歴 rows（1件以上）をたどって、一覧の1行を作る。
 // 保有数量が0（売り切った銘柄）なら held が false で、ほかの戻り値は使わない。
-// valuation は、評価額（0.01 単位。円は1円未満を切り捨てた値）。価格がなければ nil。
-func calculateStock(rows []dto.TradeRow) (h dto.Holding, valuation *big.Int, held bool, err error) {
+func calculateStock(rows []dto.TradeRow) (s calculatedStock, held bool, err error) {
 	rows = sortTrades(rows)
 	quantity, acquisition, err := replayTrades(rows)
 	if err != nil {
-		return dto.Holding{}, nil, false, err
+		return calculatedStock{}, false, err
 	}
 	if quantity.Sign() == 0 {
-		return dto.Holding{}, nil, false, nil
+		return calculatedStock{}, false, nil
 	}
 	if !quantity.IsInt64() {
-		return dto.Holding{}, nil, false, fmt.Errorf("保有数量: %w", ErrCalculationOverflow)
+		return calculatedStock{}, false, fmt.Errorf("保有数量: %w", ErrCalculationOverflow)
 	}
 
 	// 銘柄名・通貨と最新の終値・基準日は銘柄ごとに決まる値で、どの行も同じなので、並べた後の先頭の行から取る。
 	first := rows[0]
-	h = dto.Holding{Code: first.Code, Name: first.Name, Currency: first.Currency, Quantity: quantity.Int64()}
+	h := dto.Holding{Code: first.Code, Name: first.Name, Currency: first.Currency, Quantity: quantity.Int64()}
 
 	priceUnit, valuationUnit, err := roundingUnits(first.Currency)
 	if err != nil {
-		return dto.Holding{}, nil, false, err
+		return calculatedStock{}, false, err
 	}
 	acquisitionHundredths := roundHalfUp(acquisition, priceUnit)
 	if !acquisitionHundredths.IsInt64() {
-		return dto.Holding{}, nil, false, fmt.Errorf("取得価格: %w", ErrCalculationOverflow)
+		return calculatedStock{}, false, fmt.Errorf("取得価格: %w", ErrCalculationOverflow)
 	}
 	h.AcquisitionPriceHundredths = acquisitionHundredths.Int64()
 
-	valuation, err = applyClosePrice(&h, first, quantity, valuationUnit)
+	valuation, err := applyClosePrice(&h, first, quantity, valuationUnit)
 	if err != nil {
-		return dto.Holding{}, nil, false, err
+		return calculatedStock{}, false, err
 	}
-	return h, valuation, true, nil
+	s = calculatedStock{holding: h, valuation: valuation}
+	if valuation != nil {
+		// 含み損益の丸めの単位は、評価額の単位と同じ（円は1円、ドルは0.01ドル。カード表示の要件8）。
+		s.gain, err = applyUnrealizedGain(&s.holding, valuation, acquisition, quantity, valuationUnit)
+		if err != nil {
+			return calculatedStock{}, false, err
+		}
+	}
+	return s, true, nil
 }
 
 // sortTrades は、同じ銘柄の売買履歴 rows を写して、たどる順（取引日の昇順 → id の昇順）に並べたものを返す。

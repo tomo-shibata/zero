@@ -18,6 +18,12 @@
   --color-secondary: #6b7280;
   --color-secondary-hover: #4b5563;
   --color-on-accent: #ffffff;
+  /*
+   * 含み損益の文字の色。益（プラス）は赤、損（マイナス）は青（日本の株の表示の慣習。カード表示のプラン 判断8）。
+   * どちらも --color-surface（白）に対して 4.5:1 以上（WCAG 1.4.3。赤 #c62828 は約 5.6:1、青 #1565c0 は約 5.7:1）。
+   */
+  --color-gain: #c62828;
+  --color-loss: #1565c0;
   /* モーダルのダイアログの背後を暗くする色（影と同じ色味） */
   --color-overlay: rgba(17, 24, 39, 0.4);
   --radius-md: 0.5rem;

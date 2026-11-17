@@ -14,6 +14,9 @@ import { fetchHoldings } from '../../../src/features/holdings/api/fetchHoldings'
 //     priceDate は実在する YYYY-MM-DD。holdings・totals は配列（null 不可）。JSON でない本文も reject。
 // テスト計画: プラン 5.5（PR②）の「5.2b 既存のテストの直し」（fetchHoldings.test.ts は totals の形にする）と、5.3 の
 //   「fetchHoldings の zod（単体）: 円の単価に小数2桁、ドルの単価に小数1桁、知らない通貨は reject」。
+// カード表示（要件 docs/requirements/holdings-cards.md、プラン docs/plans/holdings-cards/plan.md 4.6 の PR①・5.2）: 行と合計に
+//   unrealizedGain（円 /^-?[0-9]+$/・ドル /^-?[0-9]+\.[0-9]{2}$/）・unrealizedGainRate（/^-?[0-9]+\.[0-9]$/）を足す。
+//   行: currentPrice が null なら両方 null、null でなければ両方文字列。合計: 両方 null か両方文字列。外れたら reject。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使い、fetchHoldings の結果（resolve した値か reject か）を確かめる。
 
 /** 一覧の API のパス（プラン 4.4）。 */
@@ -32,6 +35,8 @@ function apiExampleBody() {
         currentPrice: '3000.0',
         priceDate: '2026-10-06',
         valuation: '450000',
+        unrealizedGain: '75000',
+        unrealizedGainRate: '20.0',
       },
       {
         code: 'AAPL',
@@ -42,11 +47,13 @@ function apiExampleBody() {
         currentPrice: '180.00',
         priceDate: '2026-10-06',
         valuation: '1800.00',
+        unrealizedGain: '297.50',
+        unrealizedGainRate: '19.8',
       },
     ],
     totals: [
-      { currency: 'JPY', valuation: '450000', excludesUnpriced: true },
-      { currency: 'USD', valuation: '1800.00', excludesUnpriced: false },
+      { currency: 'JPY', valuation: '450000', excludesUnpriced: true, unrealizedGain: '75000', unrealizedGainRate: '20.0' },
+      { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '297.50', unrealizedGainRate: '19.8' },
     ],
   }
 }
@@ -149,6 +156,8 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
           currentPrice: null,
           priceDate: null,
           valuation: null,
+          unrealizedGain: null,
+          unrealizedGainRate: null,
         },
         {
           code: 'MSFT',
@@ -159,11 +168,13 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
           currentPrice: null,
           priceDate: null,
           valuation: null,
+          unrealizedGain: null,
+          unrealizedGainRate: null,
         },
       ],
       totals: [
-        { currency: 'JPY', valuation: '450000', excludesUnpriced: true },
-        { currency: 'USD', valuation: '0.00', excludesUnpriced: true },
+        { currency: 'JPY', valuation: '450000', excludesUnpriced: true, unrealizedGain: '75000', unrealizedGainRate: '20.0' },
+        { currency: 'USD', valuation: '0.00', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null },
       ],
     }
     stubFetch(() => jsonResponse(body))
@@ -174,7 +185,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
   test('円だけの応答（ドルの合計の行がない）は、同じ形の値で resolve する（基準12）', async () => {
     const body = {
       holdings: [apiExampleBody().holdings[0]],
-      totals: [{ currency: 'JPY', valuation: '450000', excludesUnpriced: false }],
+      totals: [{ currency: 'JPY', valuation: '450000', excludesUnpriced: false, unrealizedGain: '75000', unrealizedGainRate: '20.0' }],
     }
     stubFetch(() => jsonResponse(body))
 
@@ -193,9 +204,29 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
           currentPrice: '0.01',
           priceDate: '2026-10-06',
           valuation: '0.01',
+          unrealizedGain: '0.00',
+          unrealizedGainRate: '0.0',
         },
       ],
-      totals: [{ currency: 'USD', valuation: '0.01', excludesUnpriced: false }],
+      totals: [{ currency: 'USD', valuation: '0.01', excludesUnpriced: false, unrealizedGain: '0.00', unrealizedGainRate: '0.0' }],
+    }
+    stubFetch(() => jsonResponse(body))
+
+    await expect(fetchHoldings()).resolves.toEqual(body)
+  })
+
+  // カード表示の要件 holdings-cards.md の要件10・基準13、プラン 4.6（PR①）の fetchHoldings の zod:
+  // 負の含み損益と率（"-501"・"-12.5"。ドルの "-0.01"・"-0.0" は出ないが "-0.01" と "0.0" の組はある）も受け入れる。
+  test('補助（カード表示 PR①）: マイナスの含み損益と率（円 "-501"・"-12.5"、ドル "-0.01"・"0.0"）を含む応答は、同じ形の値で resolve する', async () => {
+    const body = {
+      holdings: [
+        { ...(apiExampleBody().holdings[0] as object), unrealizedGain: '-501', unrealizedGainRate: '-12.5' },
+        { ...(apiExampleBody().holdings[1] as object), unrealizedGain: '-0.01', unrealizedGainRate: '0.0' },
+      ],
+      totals: [
+        { currency: 'JPY', valuation: '450000', excludesUnpriced: false, unrealizedGain: '-501', unrealizedGainRate: '-12.5' },
+        { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '-0.01', unrealizedGainRate: '0.0' },
+      ],
     }
     stubFetch(() => jsonResponse(body))
 
@@ -391,6 +422,147 @@ describe('reject する応答（取得失敗 FR-22。PR4_EC2・PR4_EC3・PR4_TC0
       name: 'totals の excludesUnpriced が文字列の "false"（真偽値でない）',
       body: exampleWithTotal(0, (total) => {
         total.excludesUnpriced = 'false'
+      }),
+    },
+    // 含み損益・率（カード表示のプラン 4.6 PR①）: 円の含み損益 /^-?[0-9]+$/、ドル /^-?[0-9]+\.[0-9]{2}$/、率 /^-?[0-9]+\.[0-9]$/。外れたら reject。
+    {
+      name: '円の unrealizedGain が "75000.00"（小数がある。ドルの形）',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGain = '75000.00'
+      }),
+    },
+    {
+      name: '円の unrealizedGain が "+75000"（+ が付いている。API は + を付けない）',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGain = '+75000'
+      }),
+    },
+    {
+      name: '円の unrealizedGain が数の 75000（文字列でない）',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGain = 75000
+      }),
+    },
+    {
+      name: 'ドルの unrealizedGain が "297"（小数がない。円の形）',
+      body: exampleWithUsdRow((row) => {
+        row.unrealizedGain = '297'
+      }),
+    },
+    {
+      name: 'ドルの unrealizedGain が "297.5"（小数が1桁）',
+      body: exampleWithUsdRow((row) => {
+        row.unrealizedGain = '297.5'
+      }),
+    },
+    {
+      name: 'ドルの unrealizedGain が "297.505"（小数が3桁）',
+      body: exampleWithUsdRow((row) => {
+        row.unrealizedGain = '297.505'
+      }),
+    },
+    {
+      name: 'unrealizedGainRate が "20"（小数がない）',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGainRate = '20'
+      }),
+    },
+    {
+      name: 'unrealizedGainRate が "20.00"（小数が2桁）',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGainRate = '20.00'
+      }),
+    },
+    {
+      name: 'unrealizedGainRate が数の 20（文字列でない）',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGainRate = 20
+      }),
+    },
+    {
+      name: '行の unrealizedGain がない（キーごと欠けている）',
+      body: exampleWithYenRow((row) => {
+        delete row.unrealizedGain
+      }),
+    },
+    {
+      name: '行の unrealizedGainRate がない（キーごと欠けている）',
+      body: exampleWithYenRow((row) => {
+        delete row.unrealizedGainRate
+      }),
+    },
+    // 行: currentPrice が null なら含み損益・率も null、null でなければ両方とも文字列。違えば reject。
+    {
+      name: '価格のある行（currentPrice が文字列）の unrealizedGain が null',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGain = null
+      }),
+    },
+    {
+      name: '価格のある行（currentPrice が文字列）の unrealizedGainRate が null',
+      body: exampleWithYenRow((row) => {
+        row.unrealizedGainRate = null
+      }),
+    },
+    {
+      name: '価格のない行（currentPrice・priceDate・valuation が null）の unrealizedGain が文字列',
+      body: exampleWithYenRow((row) => {
+        row.currentPrice = null
+        row.priceDate = null
+        row.valuation = null
+        row.unrealizedGainRate = null
+      }),
+    },
+    {
+      name: '価格のない行（currentPrice・priceDate・valuation が null）の unrealizedGainRate が文字列',
+      body: exampleWithYenRow((row) => {
+        row.currentPrice = null
+        row.priceDate = null
+        row.valuation = null
+        row.unrealizedGain = null
+      }),
+    },
+    // 合計: unrealizedGain と unrealizedGainRate は、両方とも null か両方とも文字列。違えば reject。
+    {
+      name: 'totals の unrealizedGain が null で unrealizedGainRate が文字列',
+      body: exampleWithTotal(0, (total) => {
+        total.unrealizedGain = null
+      }),
+    },
+    {
+      name: 'totals の unrealizedGain が文字列で unrealizedGainRate が null',
+      body: exampleWithTotal(0, (total) => {
+        total.unrealizedGainRate = null
+      }),
+    },
+    {
+      name: '円の totals の unrealizedGain が "75000.00"（小数がある）',
+      body: exampleWithTotal(0, (total) => {
+        total.unrealizedGain = '75000.00'
+      }),
+    },
+    {
+      name: 'ドルの totals の unrealizedGain が "297"（小数がない）',
+      body: exampleWithTotal(1, (total) => {
+        total.unrealizedGain = '297'
+      }),
+    },
+    {
+      name: 'totals の unrealizedGainRate が "19.85"（小数が2桁）',
+      body: exampleWithTotal(1, (total) => {
+        total.unrealizedGainRate = '19.85'
+      }),
+    },
+    {
+      name: 'totals の unrealizedGain がない（キーごと欠けている）',
+      body: exampleWithTotal(0, (total) => {
+        delete total.unrealizedGain
+      }),
+    },
+    {
+      name: 'totals の unrealizedGainRate がない（キーごと欠けている）',
+      body: exampleWithTotal(0, (total) => {
+        delete total.unrealizedGainRate
       }),
     },
   ]

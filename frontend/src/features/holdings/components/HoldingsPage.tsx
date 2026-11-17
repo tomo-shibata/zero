@@ -1,11 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Holding, HoldingsList } from '../../../entities/holding/model'
 import { AlertDialog } from '../../../shared/ui/AlertDialog'
 import { Spinner } from '../../../shared/ui/Spinner'
 import { useHoldings } from '../hooks/useHoldings'
 import { DeleteHoldingDialog } from './DeleteHoldingDialog'
-import { HoldingsTable } from './HoldingsTable'
-import { HoldingsTotal } from './HoldingsTotal'
+import { HoldingCardList } from './HoldingCardList'
+import { HoldingsSummary } from './HoldingsSummary'
 import { PriceRefreshPanel } from './PriceRefreshPanel'
 import './HoldingsPage.css'
 
@@ -24,8 +24,6 @@ export function HoldingsPage() {
   const holdingsQuery = useHoldings()
   // 取得失敗のダイアログを開いているか（クライアント状態）。閉じた後は見出しだけを残す（要件 FR-22）。
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(true)
-  // 見出しの id。表とそれを囲む横スクロールの領域の名前にも使う（PR④ ステップ6 の D-2）。
-  const titleId = useId()
   const titleRef = useRef<HTMLHeadingElement>(null)
   // 削除の確認のダイアログの対象の銘柄（なければ閉じている）。クライアント状態なので、ここで持つ（値段の更新のプラン 4.4「画面」）。
   const [deleteTarget, setDeleteTarget] = useState<Pick<Holding, 'code' | 'name'> | null>(null)
@@ -75,7 +73,7 @@ export function HoldingsPage() {
 
   return (
     <main className="holdings-page">
-      <h1 id={titleId} ref={titleRef} tabIndex={-1} className="holdings-page__title">
+      <h1 ref={titleRef} tabIndex={-1} className="holdings-page__title">
         {PAGE_TITLE}
       </h1>
       {holdingsQuery.isError ? (
@@ -83,7 +81,7 @@ export function HoldingsPage() {
           <AlertDialog message={FETCH_ERROR_MESSAGE} onClose={handleErrorDialogClose} />
         )
       ) : (
-        <HoldingsContent list={holdingsQuery.data} titleId={titleId} onDelete={handleDelete} />
+        <HoldingsContent list={holdingsQuery.data} onDelete={handleDelete} />
       )}
       {deleteTarget !== null && (
         <DeleteHoldingDialog
@@ -98,25 +96,23 @@ export function HoldingsPage() {
 
 type HoldingsContentProps = {
   list: HoldingsList
-  /** 画面の見出しの id（表の名前に使う）。 */
-  titleId: string
-  /** 行のメニューの「削除」が選ばれたときに呼ばれる。 */
+  /** カードのメニューの「削除」が選ばれたときに呼ばれる。 */
   onDelete: (holding: Holding) => void
 }
 
 /**
- * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら通貨ごとの合計の領域と、価格の今すぐ更新と、表（要件 FR-6・FR-7、要件16）。
+ * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら合計の欄と、価格の今すぐ更新と、カードの並び（要件 FR-6・FR-7、カード表示の要件11）。
  * 0件のときは今すぐ更新を出さない（値段の更新の要件1）。
  */
-function HoldingsContent({ list, titleId, onDelete }: HoldingsContentProps) {
+function HoldingsContent({ list, onDelete }: HoldingsContentProps) {
   if (list.holdings.length === 0) {
     return <p className="holdings-page__empty">{EMPTY_MESSAGE}</p>
   }
   return (
     <>
-      {list.totals.length > 0 && <HoldingsTotal totals={list.totals} />}
+      {list.totals.length > 0 && <HoldingsSummary totals={list.totals} />}
       <PriceRefreshPanel />
-      <HoldingsTable holdings={list.holdings} labelledBy={titleId} onDelete={onDelete} />
+      <HoldingCardList holdings={list.holdings} onDelete={onDelete} />
     </>
   )
 }
