@@ -6,6 +6,7 @@ import { AlertDialog } from '../../../shared/ui/AlertDialog'
 import { Spinner } from '../../../shared/ui/Spinner'
 import { useHoldings } from '../hooks/useHoldings'
 import { useHoldingsOrder } from '../hooks/useHoldingsOrder'
+import { useTotalsView } from '../hooks/useTotalsView'
 import { DeleteHoldingDialog } from './DeleteHoldingDialog'
 import { HoldingCardList } from './HoldingCardList'
 import { HoldingsSummary } from './HoldingsSummary'
@@ -117,12 +118,21 @@ type HoldingsContentProps = {
 function HoldingsContent({ list, onDelete, onOpen }: HoldingsContentProps) {
   // 並べ替えと保存（カード表示の要件23・要件30）。保存に失敗したら、カードの並びの直前に知らせる。
   const { move, saveFailed } = useHoldingsOrder()
+  // 合計の欄の表示（通貨ごと・円にまとめる）。ブラウザーに覚えさせた表示で始める（ドルを円でまとめる合計の要件16）。
+  const { view, setView } = useTotalsView()
   if (list.holdings.length === 0) {
     return <p className="holdings-page__empty">{EMPTY_MESSAGE}</p>
   }
   return (
     <>
-      {list.totals.length > 0 && <HoldingsSummary totals={list.totals} />}
+      {list.totals.length > 0 && (
+        <HoldingsSummary
+          totals={list.totals}
+          combinedTotal={list.combinedTotal}
+          view={view}
+          onViewChange={setView}
+        />
+      )}
       <PriceRefreshPanel />
       {saveFailed && (
         <p role="alert" className="holdings-page__save-failed">

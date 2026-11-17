@@ -10,6 +10,7 @@ import {
   UNIT_PRICE_PATTERNS,
   UNREALIZED_GAIN_PATTERNS,
   UNREALIZED_GAIN_RATE_PATTERN,
+  USD_JPY_RATE_PATTERN,
   VALUATION_PATTERNS,
 } from './currency'
 
@@ -119,6 +120,17 @@ export function formatUnrealizedGain(currency: Currency, gain: string, rate: str
   }
   const sign = gainSign === '-' ? '-' : '+'
   return `${sign}${amount}（${sign}${rateInteger}.${rateFraction}%）`
+}
+
+/**
+ * ドル円のレートを表示する（要件10）。整数部を3桁区切りにし、小数2桁はそのまま（例 "1000.50" → "1,000.50"）。
+ * 形が合わなければ throw する（このファイルの先頭のコメントのとおり、描画中には届かない）。
+ */
+export function formatUsdJpyRate(rate: string): string {
+  const match = USD_JPY_RATE_PATTERN.exec(rate)
+  if (!match) throw new Error('レートの形が正しくありません')
+  const [, integerPart, fraction] = match
+  return `${groupedInteger.format(BigInt(integerPart))}.${fraction}`
 }
 
 /** 含み損益の色の種類。プラスは 'gain'、マイナスは 'loss'、0 は 'even'（要件4）。 */

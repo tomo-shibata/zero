@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   formatShares,
   formatUnitPrice,
+  formatUsdJpyRate,
   formatValuation,
 } from '../../../src/shared/lib/format'
 
@@ -170,5 +171,26 @@ describe('formatShares（保有数量の表示。FR-13）', () => {
 
   test('補助 FR-13（PR4_EC13）: Number.MAX_SAFE_INTEGER + 1 を渡すと throw する', () => {
     expect(() => formatShares(Number.MAX_SAFE_INTEGER + 1)).toThrow()
+  })
+})
+
+// ドルを円にまとめる合計（要件 docs/requirements/fx-total.md の要件10・基準9、プラン docs/plans/fx-total/plan.md 4.7 の PR②・5.1・5.2）。
+// 境界: formatUsdJpyRate(rate: string): string  // "1000.50" → "1,000.50"。整数部分を3桁区切りにし、小数2桁はそのまま。
+describe('formatUsdJpyRate（ドル円のレートの表示。要件10）', () => {
+  // 基準9: レート 150 円は「150.00」、1,000.5 円は「1,000.50」（API は小数2桁の文字列で渡す）。
+  test.each([
+    ['150.00', '150.00'],
+    ['1000.50', '1,000.50'],
+  ])('基準9: formatUsdJpyRate(%j) は %j になる', (rate, expected) => {
+    expect(formatUsdJpyRate(rate)).toBe(expected)
+  })
+
+  // 補助（プラン 5.2）: 3桁区切りの境目。整数部が1桁、7桁。
+  test.each([
+    ['0.01', '0.01'],
+    ['999.99', '999.99'],
+    ['1234567.89', '1,234,567.89'],
+  ])('補助（要件10）: formatUsdJpyRate(%j) は %j になる', (rate, expected) => {
+    expect(formatUsdJpyRate(rate)).toBe(expected)
   })
 })

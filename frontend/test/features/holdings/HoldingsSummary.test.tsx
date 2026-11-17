@@ -16,8 +16,17 @@ import { HoldingsSummary } from '../../../src/features/holdings/components/Holdi
 //   - 金額の整形は shared/lib/format.ts の formatValuation・formatUnrealizedGain。
 //   - totals が空なら、呼び出し側が HoldingsSummary を描画しない（0件の画面は HoldingsPage.test.tsx）。
 
+//   ドルを円にまとめる合計（プラン docs/plans/fx-total/plan.md 4.7 の PR②・5.3）: props に combinedTotal・view・onViewChange を足した。
+//   このファイルは通貨ごとの表示（combinedTotal: null）の既存の確かめなので、Summary で combinedTotal: null・view="byCurrency" を渡す。
+//   円にまとめた表示と切り替えは HoldingsSummary.combined.test.tsx。
+
 const UNPRICED_NOTE = '価格を取得できない銘柄を含みません'
 const UNAVAILABLE = '取得できません'
+
+/** 通貨ごとの表示（切り替えなし。combinedTotal: null）で HoldingsSummary を描く。 */
+function Summary({ totals }: { totals: readonly CurrencyTotal[] }) {
+  return <HoldingsSummary totals={totals} combinedTotal={null} view="byCurrency" onViewChange={() => {}} />
+}
 
 afterEach(() => {
   cleanup()
@@ -69,7 +78,7 @@ const USD_GAIN: CurrencyTotal = {
 describe('HoldingsSummary（合計の欄。要件11・要件12）', () => {
   // 基準14 の部品の部分: 円・ドルの順に、含み損益の合計とその率、評価額の合計が表示され、「価格を取得できない銘柄を含みません」は表示されない。
   test('基準14: 円「含み損益 +45,000円（+15.5%）/ 評価額 335,000円」、ドル「含み損益 +297.50ドル（+19.8%）/ 評価額 1,800.00ドル」がこの順に表示され、注記は表示されない', () => {
-    render(<HoldingsSummary totals={[YEN_GAIN, USD_GAIN]} />)
+    render(<Summary totals={[YEN_GAIN, USD_GAIN]} />)
 
     const yen = currencyRegion('円')
     const usd = currencyRegion('ドル')
@@ -83,7 +92,7 @@ describe('HoldingsSummary（合計の欄。要件11・要件12）', () => {
 
   // 基準14: 見出しは「合計」（h2）の1つと、通貨ごとの「円」「ドル」（h3）。
   test('基準14: 見出しは h2「合計」が1つと、通貨ごとの h3「円」「ドル」で、見出しの名前は region の名前と同じ', () => {
-    render(<HoldingsSummary totals={[YEN_GAIN, USD_GAIN]} />)
+    render(<Summary totals={[YEN_GAIN, USD_GAIN]} />)
 
     expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['合計'])
     expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['円', 'ドル'])
@@ -92,7 +101,7 @@ describe('HoldingsSummary（合計の欄。要件11・要件12）', () => {
 
   // 要件12・プラン 4.6: 各通貨の中は「含み損益」「含み損益と率」「評価額」「評価額の値」の順。
   test('基準14: 各通貨の部分は、見出し、「含み損益」、含み損益と率、「評価額」、評価額の値の順に並ぶ', () => {
-    render(<HoldingsSummary totals={[YEN_GAIN, USD_GAIN]} />)
+    render(<Summary totals={[YEN_GAIN, USD_GAIN]} />)
 
     for (const [name, gain, valuation] of [
       ['円', '+45,000円（+15.5%）', '335,000円'],
@@ -114,7 +123,7 @@ describe('HoldingsSummary（合計の欄。要件11・要件12）', () => {
 
   // 基準17: Aの保有が 7203 だけ（円だけ）→ 円の部分だけを表示し、ドルの部分は表示しない。
   test('基準17: totals が円だけなら、円の部分だけが表示され、ドルの部分（region「ドル」）は表示されない', () => {
-    render(<HoldingsSummary totals={[YEN_GAIN]} />)
+    render(<Summary totals={[YEN_GAIN]} />)
 
     expect(currencyRegion('円')).toBeInTheDocument()
     expect(within(summaryRegion()).queryByRole('region', { name: 'ドル' })).not.toBeInTheDocument()
@@ -124,7 +133,7 @@ describe('HoldingsSummary（合計の欄。要件11・要件12）', () => {
 
   // 要件12: ドルだけなら、ドルの部分だけを表示し、円の部分は表示しない。
   test('補助（要件12）: totals がドルだけなら、ドルの部分だけが表示され、円の部分は表示されない', () => {
-    render(<HoldingsSummary totals={[USD_GAIN]} />)
+    render(<Summary totals={[USD_GAIN]} />)
 
     expect(currencyRegion('ドル')).toBeInTheDocument()
     expect(within(summaryRegion()).queryByRole('region', { name: '円' })).not.toBeInTheDocument()
@@ -133,7 +142,7 @@ describe('HoldingsSummary（合計の欄。要件11・要件12）', () => {
 
   // 要件12: 為替で換算した、円とドルを合わせた合計は出さない（通貨の部分は円とドルの2つだけ。合計の欄の中の金額は4つだけ）。
   test('補助（要件12）: 円とドルを合わせた合計は出さない（通貨の部分は2つだけで、含み損益の要素も2つだけ）', () => {
-    render(<HoldingsSummary totals={[YEN_GAIN, USD_GAIN]} />)
+    render(<Summary totals={[YEN_GAIN, USD_GAIN]} />)
 
     expect(within(summaryRegion()).getAllByRole('region')).toHaveLength(2)
     expect(summaryRegion().querySelectorAll('[data-tone]')).toHaveLength(2)
@@ -144,7 +153,7 @@ describe('HoldingsSummary の注記と「取得できません」（要件15・�
   // 基準15 の部品の部分: 円は含み損益あり・注記あり、ドルは「含み損益 取得できません / 評価額 0.00ドル」と注記。注記は円とドルに1つずつ（全体で2つ）。
   test('基準15: 円は「+50,000円（+20.0%）」「300,000円」と注記、ドルは「取得できません」「0.00ドル」と注記。注記は円とドルに1つずつ（2つ）', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[
           { currency: 'JPY', valuation: '300000', excludesUnpriced: true, unrealizedGain: '50000', unrealizedGainRate: '20.0' },
           { currency: 'USD', valuation: '0.00', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null },
@@ -166,7 +175,7 @@ describe('HoldingsSummary の注記と「取得できません」（要件15・�
   // 要件16: 含み損益の合計が null のとき、「取得できません」と表示して率は出さず、赤・青も付けない（data-tone が even）。
   test('基準15（要件16）: 含み損益の合計が null の通貨は、「取得できません」だけで率は出ず、data-tone が even になる', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[{ currency: 'USD', valuation: '0.00', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null }]}
       />,
     )
@@ -180,7 +189,7 @@ describe('HoldingsSummary の注記と「取得できません」（要件15・�
   // 要件15: 注記は、価格のない銘柄がある通貨の部分の中にだけある。注記は評価額の値の後（その通貨の部分の最後）。
   test('補助（要件15）: 円だけ excludesUnpriced なら、注記は円の部分にだけあり、ドルの部分にはない。注記は評価額の後に出る', () => {
     render(
-      <HoldingsSummary totals={[{ ...YEN_GAIN, valuation: '300000', excludesUnpriced: true }, USD_GAIN]} />,
+      <Summary totals={[{ ...YEN_GAIN, valuation: '300000', excludesUnpriced: true }, USD_GAIN]} />,
     )
 
     const yen = currencyRegion('円')
@@ -196,7 +205,7 @@ describe('HoldingsSummary の注記と「取得できません」（要件15・�
 
   test('補助（要件15）: ドルだけ excludesUnpriced なら、注記はドルの部分にだけあり、円の部分にはない', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[YEN_GAIN, { ...USD_GAIN, valuation: '0.00', excludesUnpriced: true }]}
       />,
     )
@@ -210,7 +219,7 @@ describe('HoldingsSummary の注記と「取得できません」（要件15・�
 describe('HoldingsSummary の含み損益の色の種類（data-tone。要件4・要件13）', () => {
   test('基準3・基準4（要件13の「表示形式・色は要件4・要件10と同じ」）: プラスは gain、マイナスは loss、0 は even', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[
           { currency: 'JPY', valuation: '335000', excludesUnpriced: false, unrealizedGain: '45000', unrealizedGainRate: '15.5' },
           { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '-0.01', unrealizedGainRate: '0.0' },
@@ -225,7 +234,7 @@ describe('HoldingsSummary の含み損益の色の種類（data-tone。要件4�
 
   test('基準4: 含み損益の合計が0なら「0円（0.0%）」で data-tone が even（API の率が "-0.1" でも率は 0.0）', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[
           { currency: 'JPY', valuation: '20000', excludesUnpriced: false, unrealizedGain: '0', unrealizedGainRate: '-0.1' },
         ]}
@@ -241,7 +250,7 @@ describe('HoldingsSummary の含み損益の色の種類（data-tone。要件4�
 describe('HoldingsSummary の評価額の合計（売買履歴の要件12〜14。計算と表示は変えない）', () => {
   test('補助（売買履歴の要件14）: 大きな金額は3桁区切りで表示される（円「1,234,567円」・ドル「1,234,567.50ドル」）', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[
           { currency: 'JPY', valuation: '1234567', excludesUnpriced: false, unrealizedGain: '34567', unrealizedGainRate: '2.9' },
           { currency: 'USD', valuation: '1234567.50', excludesUnpriced: false, unrealizedGain: '34567.50', unrealizedGainRate: '2.9' },
@@ -255,7 +264,7 @@ describe('HoldingsSummary の評価額の合計（売買履歴の要件12〜14�
 
   test('補助（売買履歴の要件13）: すべて価格がない通貨の評価額の合計は「0.00ドル」（円なら「0円」）と表示される', () => {
     render(
-      <HoldingsSummary
+      <Summary
         totals={[
           { currency: 'JPY', valuation: '0', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null },
           { currency: 'USD', valuation: '0.00', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null },

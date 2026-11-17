@@ -52,12 +52,30 @@ export type CurrencyTotal = {
   unrealizedGainRate: string | null
 }
 
+/** ドルを円にまとめた合計（ドルを円でまとめる合計のプラン 4.4。円の整数の文字列で持つ）。 */
+export type CombinedTotal = {
+  /** 評価額の合計（円の整数。例 "570000"）。 */
+  valuation: string
+  /** 円かドルに価格のない銘柄が1件以上あれば true（評価額・含み損益の合計にその銘柄を含まない）。 */
+  excludesUnpriced: boolean
+  /** 含み損益の合計（円の符号付きの整数。例 "94625"・"-10002"）。価格のある銘柄がなければ null（unrealizedGainRate と同時に null）。 */
+  unrealizedGain: string | null
+  /** 含み損益の合計の率（%。符号付きの小数1桁。例 "19.9"）。unrealizedGain が null のときだけ null。 */
+  unrealizedGainRate: string | null
+  /** 換算に使ったレート（1ドルあたりの円。小数2桁。例 "150.00"・"1000.50"）。 */
+  usdJpyRate: string
+  /** そのレートの日付。"YYYY-MM-DD"。 */
+  usdJpyRateDate: string
+}
+
 /** 保有株式一覧。 */
 export type HoldingsList = {
   /** 銘柄コードの昇順（通貨によらない。要件15）。0件のときは空の配列。 */
   holdings: Holding[]
   /** 通貨ごとの合計評価額。保有のある通貨だけを、円、ドルの順に入れる。0件のときは空の配列。 */
   totals: CurrencyTotal[]
+  /** 円にまとめた合計。切り替えを出さないとき（ドルの保有がない、レートがない）は null。 */
+  combinedTotal: CombinedTotal | null
 }
 
 /**
