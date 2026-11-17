@@ -33,6 +33,10 @@ func (r *fixedRowsReader) ListTradeRows(_ context.Context, userID uuid.UUID) ([]
 	return r.rows, r.err
 }
 
+func (r *fixedRowsReader) ListStockSplits(context.Context, uuid.UUID) ([]dto.StockSplitRow, error) {
+	return []dto.StockSplitRow{}, nil
+}
+
 func (r *fixedRowsReader) ListHoldingOrder(context.Context, uuid.UUID) ([]string, error) {
 	if r.order == nil {
 		return []string{}, nil

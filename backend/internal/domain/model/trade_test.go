@@ -239,7 +239,7 @@ func Test基準27_FindOversellsは直前の保有数量より多い売りを返�
 		buy("7203", 100, "2026-01-10"),
 		sell("7203", 150, "2026-02-10"),
 	}
-	got := model.FindOversells(trades)
+	got := model.FindOversells(trades, nil)
 	want := []model.Oversell{{Index: 1, Held: 100, Sold: 150}}
 	if !slices.Equal(got, want) {
 		t.Errorf("FindOversells: got %+v, want %+v", got, want)
@@ -250,12 +250,12 @@ func Test基準27_FindOversellsは直前の保有数量より多い売りを返�
 func Test要件9_FindOversellsは持っている株数ちょうどまでの売りと売りの積み重ねを正しく数える(t *testing.T) {
 	t.Parallel()
 	exact := []model.Trade{buy("7203", 100, "2026-01-10"), sell("7203", 100, "2026-02-10")}
-	if got := model.FindOversells(exact); len(got) != 0 {
+	if got := model.FindOversells(exact, nil); len(got) != 0 {
 		t.Errorf("FindOversells(ちょうど売り切り): got %+v, want なし", got)
 	}
 	// 買い 100 → 売り 40（残り 60）→ 売り 70（直前の保有数量は 60 なので多すぎる）。
 	stacked := []model.Trade{buy("7203", 100, "2026-01-10"), sell("7203", 40, "2026-02-10"), sell("7203", 70, "2026-03-10")}
-	got := model.FindOversells(stacked)
+	got := model.FindOversells(stacked, nil)
 	want := []model.Oversell{{Index: 2, Held: 60, Sold: 70}}
 	if !slices.Equal(got, want) {
 		t.Errorf("FindOversells(売りの積み重ね): got %+v, want %+v", got, want)
@@ -269,7 +269,7 @@ func Test基準28_FindOversellsは取引日の順にたどる(t *testing.T) {
 		sell("7203", 100, "2026-02-10"),
 		buy("7203", 100, "2026-01-10"),
 	}
-	if got := model.FindOversells(trades); len(got) != 0 {
+	if got := model.FindOversells(trades, nil); len(got) != 0 {
 		t.Errorf("FindOversells(行の順が取引日の順と逆): got %+v, want なし（取引日の順にたどると売りの時点で100株持っている）", got)
 	}
 }
@@ -281,7 +281,7 @@ func Test基準28_FindOversellsのIndexは渡したスライスの添字であ�
 		sell("7203", 150, "2026-02-10"), // 添字 0。取引日の順では 2番目。直前の保有数量は 100
 		buy("7203", 100, "2026-01-10"),  // 添字 1。取引日の順では最初
 	}
-	got := model.FindOversells(trades)
+	got := model.FindOversells(trades, nil)
 	want := []model.Oversell{{Index: 0, Held: 100, Sold: 150}}
 	if !slices.Equal(got, want) {
 		t.Errorf("FindOversells: got %+v, want %+v", got, want)
@@ -292,13 +292,13 @@ func Test基準28_FindOversellsのIndexは渡したスライスの添字であ�
 func Test要件8_FindOversellsは同じ取引日をスライスの順にたどる(t *testing.T) {
 	t.Parallel()
 	sellFirst := []model.Trade{sell("7203", 100, "2026-03-02"), buy("7203", 100, "2026-03-02")}
-	got := model.FindOversells(sellFirst)
+	got := model.FindOversells(sellFirst, nil)
 	want := []model.Oversell{{Index: 0, Held: 0, Sold: 100}}
 	if !slices.Equal(got, want) {
 		t.Errorf("FindOversells(同じ日に売りが先): got %+v, want %+v", got, want)
 	}
 	buyFirst := []model.Trade{buy("7203", 100, "2026-03-02"), sell("7203", 100, "2026-03-02")}
-	if got := model.FindOversells(buyFirst); len(got) != 0 {
+	if got := model.FindOversells(buyFirst, nil); len(got) != 0 {
 		t.Errorf("FindOversells(同じ日に買いが先): got %+v, want なし", got)
 	}
 }
@@ -314,7 +314,7 @@ func Test補助_FindOversellsは銘柄ごとに最初の1件だけをIndexの昇
 		sell("6758", 20, "2026-02-10"),  // 3: 多すぎる（直前 10）
 		sell("7203", 200, "2026-03-10"), // 4: これも多すぎるが、7203 は最初の1件だけ
 	}
-	got := model.FindOversells(trades)
+	got := model.FindOversells(trades, nil)
 	want := []model.Oversell{
 		{Index: 2, Held: 100, Sold: 150},
 		{Index: 3, Held: 10, Sold: 20},
@@ -331,7 +331,7 @@ func Test補助_FindOversellsは銘柄ごとに保有数量を数える(t *testi
 		buy("7203", 100, "2026-01-10"),
 		sell("6758", 10, "2026-02-10"), // 6758 は持っていない
 	}
-	got := model.FindOversells(trades)
+	got := model.FindOversells(trades, nil)
 	want := []model.Oversell{{Index: 1, Held: 0, Sold: 10}}
 	if !slices.Equal(got, want) {
 		t.Errorf("FindOversells: got %+v, want %+v", got, want)
@@ -341,10 +341,10 @@ func Test補助_FindOversellsは銘柄ごとに保有数量を数える(t *testi
 // 売買履歴が0件でも壊れない。
 func Test補助_FindOversellsは売買履歴が0件なら何も返さない(t *testing.T) {
 	t.Parallel()
-	if got := model.FindOversells(nil); len(got) != 0 {
+	if got := model.FindOversells(nil, nil); len(got) != 0 {
 		t.Errorf("FindOversells(nil): got %+v, want なし", got)
 	}
-	if got := model.FindOversells([]model.Trade{}); len(got) != 0 {
+	if got := model.FindOversells([]model.Trade{}, nil); len(got) != 0 {
 		t.Errorf("FindOversells(空): got %+v, want なし", got)
 	}
 }

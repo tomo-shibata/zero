@@ -47,11 +47,19 @@ export type TradeSeed = { code: string; side: 'buy' | 'sell'; quantity: number; 
 /** 保存済みの終値1件。取引日は "YYYY-MM-DD"、終値は円が小数第1位まで・ドルが小数第2位までの文字列（例 "3000.0"、"180.00"）。 */
 export type StockPriceSeed = { code: string; tradingDate: string; closePrice: string }
 
+/**
+ * 株式分割1件（株式分割のプラン 4.8 PR①）。分割は全利用者で共有する（利用者は持たない）。
+ * 分割の日は "YYYY-MM-DD"、ratio は分割後の株数（2〜1,000。1→3 なら 3）。銘柄マスタにない銘柄も入れられる（外部キーなし）。
+ */
+export type SplitSeed = { code: string; splitDate: string; ratio: number }
+
 /** 1つのテストで入れるデータ。銘柄マスタ → 売買履歴 → 終値の順に入れる（FK のため）。 */
 export type HoldingsTestData = {
   stocks?: StockSeed[]
   trades?: TradeSeed[]
   prices?: StockPriceSeed[]
+  /** 株式分割（省略できる。株式分割のプラン 4.8 PR①）。stock_splits に入れる。 */
+  splits?: SplitSeed[]
   /**
    * 利用者A の保存済みの並び（銘柄コードを位置の順に。カード表示のプラン 4.6 PR②）。holding_orders に位置 0, 1, 2, … で入れる。
    * 銘柄マスタに銘柄があること（FK）。保有しているかは確かめない。なければ並びは保存しない（銘柄コードの昇順で表示）。
@@ -110,7 +118,7 @@ async function inE2ETransaction(
  */
 export async function resetHoldingsData(): Promise<void> {
   await inE2ETransaction(async (client) => {
-    await client.query('TRUNCATE trades, stock_prices, holding_orders')
+    await client.query('TRUNCATE trades, stock_prices, holding_orders, stock_splits')
     await client.query('DELETE FROM stocks WHERE code <> ALL($1::text[])', [
       SEED_STOCK_CODES,
     ])
@@ -126,6 +134,7 @@ export async function insertHoldingsData(
   const stocks = data.stocks ?? []
   const trades = data.trades ?? []
   const prices = data.prices ?? []
+  const splits = data.splits ?? []
   const order = data.order ?? []
 
   await inE2ETransaction(async (client) => {
@@ -162,6 +171,17 @@ export async function insertHoldingsData(
           prices.map((p) => p.code),
           prices.map((p) => p.tradingDate),
           prices.map((p) => p.closePrice),
+        ],
+      )
+    }
+    if (splits.length > 0) {
+      await client.query(
+        `INSERT INTO stock_splits (stock_code, split_date, ratio)
+         SELECT * FROM unnest($1::text[], $2::date[], $3::integer[])`,
+        [
+          splits.map((s) => s.code),
+          splits.map((s) => s.splitDate),
+          splits.map((s) => s.ratio),
         ],
       )
     }

@@ -36,6 +36,13 @@ type TradeRow struct {
 	PriceDate            *string // 終値の取引日（"YYYY-MM-DD"）。価格が一度も保存されていなければ nil
 }
 
+// StockSplitRow は、DB から読んだ株式分割1件（株式分割の要件1〜3。計算する前）。全利用者で共有するので、利用者は持たない。
+type StockSplitRow struct {
+	Code      string
+	SplitDate string // 分割の日（"YYYY-MM-DD"）。分割の後の値段で売買が始まる日
+	Ratio     int64  // 分割後の株数（1株が Ratio 株になる）
+}
+
 // Holding は、一覧の1行（同じ銘柄の売買履歴から計算した保有。要件6）。
 type Holding struct {
 	Code, Name                 string

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,10 +109,53 @@ func replaceTradesIn(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, userID 
 		return err
 	}
 	// 入れ直した後に保有していない銘柄（CSV から消えた、売り切った）の並びの行を消す。また保有したときは末尾に出る（要件28。プラン 4.3「消すとき」）。
-	if err := q.DeleteHoldingOrdersNotHeld(ctx, owner); err != nil {
+	// 保有している銘柄は、入れた売買履歴とその銘柄の分割から、domain の HeldStockCodes で決める（株式分割のプラン 4.3。IF が分割を受け取らないので、ここで読み直す）。
+	held, err := heldCodesOfImported(ctx, q, trades)
+	if err != nil {
+		return err
+	}
+	if err := q.DeleteHoldingOrdersExcept(ctx, sqlcgen.DeleteHoldingOrdersExceptParams{UserID: owner, Codes: held}); err != nil {
 		return fmt.Errorf("並びの行の削除に失敗しました: %w", err)
 	}
 	return nil
+}
+
+// heldCodesOfImported は、取り込んだ売買履歴 trades とその銘柄の分割（DB から読み直す）から、保有数量が1以上の銘柄コードを返す。
+func heldCodesOfImported(ctx context.Context, q *sqlcgen.Queries, trades []model.Trade) ([]string, error) {
+	codes := make(map[string]struct{})
+	for _, t := range trades {
+		codes[t.StockCode] = struct{}{}
+	}
+	splitRows, err := q.ListStockSplitsByCodes(ctx, slices.Collect(maps.Keys(codes)))
+	if err != nil {
+		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
+	}
+	splits := make([]model.StockSplit, 0, len(splitRows))
+	for _, row := range splitRows {
+		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
+		if err != nil {
+			return nil, err
+		}
+		splits = append(splits, s)
+	}
+	return model.HeldStockCodes(trades, splits), nil
+}
+
+// FindStockSplits は、codes の銘柄の分割を返す（並び順は決めない）。銘柄マスタにない銘柄の分割も返す（銘柄マスタを見ない）。なければ空のスライスを返す。
+func (r *TradeImportRepository) FindStockSplits(ctx context.Context, codes []string) ([]model.StockSplit, error) {
+	rows, err := r.queries.ListStockSplitsByCodes(ctx, codes)
+	if err != nil {
+		return nil, fmt.Errorf("分割の問い合わせに失敗しました: %w", err)
+	}
+	splits := make([]model.StockSplit, 0, len(rows))
+	for _, row := range rows {
+		s, err := toStockSplit(row.StockCode, row.SplitDate, row.Ratio)
+		if err != nil {
+			return nil, err
+		}
+		splits = append(splits, s)
+	}
+	return splits, nil
 }
 
 // copyTrades は、trades をスライスの順に、利用者 owner の売買履歴として COPY で入れる。

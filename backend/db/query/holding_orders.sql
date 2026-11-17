@@ -23,17 +23,10 @@ DELETE FROM holding_orders
 WHERE user_id = sqlc.arg(user_id)
   AND stock_code = sqlc.arg(stock_code);
 
--- name: DeleteHoldingOrdersNotHeld :exec
--- 利用者 user_id の並びの行のうち、保有数量（買いの株数の合計 − 売りの株数の合計）が1以上でない銘柄の行を消す。
--- 売買履歴の CSV の取り込みが、売買履歴を入れた後に行う（要件28。プラン 4.3「消すとき」）。売買履歴が1件もなくなった銘柄も保有していない銘柄なので消える。
--- 他の利用者の行は消さない。
-DELETE FROM holding_orders AS o
-WHERE o.user_id = sqlc.arg(user_id)
-  AND NOT EXISTS (
-    SELECT 1
-    FROM trades AS t
-    WHERE t.user_id = o.user_id
-      AND t.stock_code = o.stock_code
-    GROUP BY t.stock_code
-    HAVING sum(CASE t.side WHEN 'buy' THEN t.quantity ELSE -t.quantity END) >= 1
-  );
+-- name: DeleteHoldingOrdersExcept :exec
+-- 利用者 user_id の並びの行のうち、銘柄コードが codes にない銘柄の行を消す。codes が空なら、その利用者の行をすべて消す。
+-- 保有している銘柄（codes）は、呼び出し側が分割も混ぜて決める（保有の判定を SQL に持たない。株式分割のプラン 4.3）。
+-- 売買履歴の CSV の取り込み（売買履歴を入れた後。カード表示の要件28）と、分割の取り込み（全利用者）が使う。他の利用者の行は消さない。
+DELETE FROM holding_orders
+WHERE user_id = sqlc.arg(user_id)
+  AND NOT (stock_code = ANY(coalesce(sqlc.arg(codes)::text[], '{}')));

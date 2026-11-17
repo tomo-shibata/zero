@@ -15,9 +15,12 @@ type TradeImportRepository interface {
 	UserExists(ctx context.Context, userID uuid.UUID) (bool, error)
 	// FindStocks は、codes のうち銘柄マスタにある銘柄を、銘柄コードをキーにして返す。なければ空のマップを返す。
 	FindStocks(ctx context.Context, codes []string) (map[string]model.Stock, error)
+	// FindStockSplits は、codes の銘柄の分割を返す（並び順は決めない。なければ空のスライス）。
+	// 銘柄マスタにない銘柄の分割も返す（銘柄マスタを見ない。株式分割の要件11 の「分割 → 売買履歴」の順で、新しい銘柄を取り込むため）。
+	FindStockSplits(ctx context.Context, codes []string) ([]model.StockSplit, error)
 	// ReplaceTrades は、1つのトランザクションで、利用者の売買履歴をすべて消し、newStocks を足し、renamed の銘柄名を変え、
 	// trades をスライスの順に入れる（先の行ほど trades.id が小さい。要件8）。途中で失敗したら何も変えない。
-	// 売買履歴を入れた後に、その利用者の並びの行のうち、保有していない銘柄の行を消す（カード表示の要件28）。
+	// 売買履歴を入れた後に、その利用者の並びの行のうち、保有していない銘柄の行を消す（カード表示の要件28。保有の判定は分割を含める）。
 	// 他の利用者の売買履歴・並びと、銘柄マスタの通貨は変えない（renamed は銘柄名だけを変える）。
 	ReplaceTrades(ctx context.Context, userID uuid.UUID, newStocks, renamed []model.Stock, trades []model.Trade) error
 }

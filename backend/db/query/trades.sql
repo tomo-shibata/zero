@@ -26,35 +26,25 @@ LEFT JOIN LATERAL (
 ) AS p ON true
 WHERE t.user_id = sqlc.arg(user_id);
 
--- name: ListHeldStocks :many
--- 誰かの保有数量（買いの株数の合計 − 売りの株数の合計）が1以上の銘柄を、銘柄コードと通貨で、重複なし・コードの昇順で返す。
--- 価格の取得処理が、終値を取得する銘柄を決め、取得した終値の精度を通貨で確かめるために使う（要件5・要件16）。売り切った銘柄は含めない。
--- 保有数量は利用者と銘柄ごとに求め（HAVING）、そのうえで銘柄コードの重複を GROUP BY でまとめる
--- （SELECT DISTINCT だと、ORDER BY に COLLATE を付けた式を書けないため）。通貨は銘柄マスタの値で、銘柄コードごとに1つに決まる。
--- 並びは COLLATE "C"（バイト順）にして、Go の文字列比較の昇順と揃える。
--- DB の既定の照合順序（en_US.utf8）のままだと、例えば 130a が 130A より前に来て食い違うため。
-SELECT s.code AS stock_code, s.currency
-FROM (
-    SELECT user_id, stock_code
-    FROM trades
-    GROUP BY user_id, stock_code
-    HAVING sum(CASE side WHEN 'buy' THEN quantity ELSE -quantity END) >= 1
-) AS held
-JOIN stocks AS s ON s.code = held.stock_code
-GROUP BY s.code, s.currency
-ORDER BY s.code COLLATE "C";
+-- name: ListTradesOfAllUsers :many
+-- 全利用者の売買履歴を、銘柄の通貨を付けて、登録した順（id の昇順）に返す。
+-- 価格の取得処理が、誰かが保有している銘柄（保有数量が1以上の銘柄）を決めるために使う（売買履歴の要件5・要件16）。
+-- 保有数量は分割を数えないと誤る（株式分割の要件4）ので、SQL では集計せず、Go の側が利用者ごとに分割も混ぜて
+-- domain の HeldStockCodes で判定する（プラン 4.3。判断1）。価格・id は判定に要らないので読まない。
+SELECT t.user_id, t.stock_code, s.currency, t.side, t.quantity, t.trade_date
+FROM trades AS t
+JOIN stocks AS s ON s.code = t.stock_code
+ORDER BY t.id;
 
--- name: ListHeldStocksOf :many
--- 利用者 user_id の保有数量（買いの株数の合計 − 売りの株数の合計）が1以上の銘柄を、銘柄コードと通貨で、重複なし・コードの昇順で返す。
--- 価格の今すぐ更新が、その利用者の保有銘柄だけの終値を取得するために使う（要件5・要件16）。
--- ListHeldStocks（全利用者）と同じ理由で、並びは COLLATE "C"（バイト順）にする。
-SELECT s.code AS stock_code, s.currency
+-- name: ListTradesOfUser :many
+-- 利用者 user_id の売買履歴を、銘柄の通貨を付けて、登録した順（id の昇順）に返す。
+-- 価格の今すぐ更新と、並びの保存が、その利用者の保有している銘柄を決めるために使う（売買履歴の要件16、カード表示の要件23）。
+-- ListTradesOfAllUsers と同じ理由で、保有数量の判定は Go の側（domain の HeldStockCodes）で行う。
+SELECT t.stock_code, s.currency, t.side, t.quantity, t.trade_date
 FROM trades AS t
 JOIN stocks AS s ON s.code = t.stock_code
 WHERE t.user_id = sqlc.arg(user_id)
-GROUP BY s.code, s.currency
-HAVING sum(CASE t.side WHEN 'buy' THEN t.quantity ELSE -t.quantity END) >= 1
-ORDER BY s.code COLLATE "C";
+ORDER BY t.id;
 
 -- name: DeleteTradesOf :execrows
 -- 利用者 user_id の、銘柄 stock_code の売買履歴をすべて消し、消えた件数を返す。銘柄ごとの削除が使う（要件18）。

@@ -1,7 +1,6 @@
 package query
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -29,11 +28,12 @@ const (
 	usdUnitHundredths = 1
 )
 
-// CalculateHoldings は、利用者の売買履歴 rows から、保有株式一覧を作る（要件4・6〜15。移動平均法）。
+// CalculateHoldings は、利用者の売買履歴 rows と分割 splits から、保有株式一覧を作る（要件4・6〜15。移動平均法）。
 //
-//  1. 銘柄ごとに、売買履歴を「取引日の昇順 → id の昇順」にたどる（要件8。rows の並びには頼らない）。
+//  1. 銘柄ごとに、売買履歴と分割を「日付の昇順 → 同じ日は分割が先 → id の昇順」にたどる（要件8、株式分割の要件6。rows・splits の並びには頼らない）。
+//     rows にない銘柄の分割は使わない。
 //  2. 保有数量 Q（整数）と取得価格 A（有理数）を持ち、買いでは A ← (Q×A ＋ 株数×価格) ÷ (Q ＋ 株数)、Q ← Q ＋ 株数、
-//     売りでは Q ← Q − 株数（A は変えない）。途中では丸めない（要件6・要件7）。
+//     売りでは Q ← Q − 株数（A は変えない）、分割では Q ← Q × 分割後の株数、A ← A ÷ 分割後の株数。途中では丸めない（要件6・要件7、株式分割の要件5）。
 //  3. 最後の Q が0の銘柄（売り切った銘柄）は一覧に出さず、合計評価額にも、価格なしの注記にも響かせない（要件10）。
 //  4. 表示する取得価格は、A を、円は 0.1円、ドルは 0.01ドルに四捨五入した値（要件7）。
 //     評価額は「現在の価格 × Q」で、円は1円未満を切り捨て、ドルはそのまま（要件11）。
@@ -43,22 +43,25 @@ const (
 //     Totals は、保有のある通貨だけを、円、ドルの順に入れる。
 //  6. 価格のある行には、含み損益と率を付ける（unrealized_gain.go。カード表示の要件7〜10）。
 //     通貨ごとの含み損益の合計は、価格のある行の表示する含み損益の和、率は丸める前の値の和から出す（要件13）。
+//  7. その銘柄の最も新しい分割の日が、最新の終値の取引日より後なら、その銘柄は価格なしとして扱う（株式分割の要件8。
+//     終値が分割の前の値段かもしれないため）。合計評価額の注記と含み損益も、価格のない銘柄と同じになる。
 //
 // 計算は math/big で行い、桁あふれしないようにする。保有数量が途中で負になる銘柄があれば ErrNegativeQuantity、
 // 最後の値が int64 に収まらなければ ErrCalculationOverflow を（包んで）返す。値そのものは資産の額なので、エラー（ログ）には入れない。
 // rows が nil でも空でも、Holdings は空のスライス（nil ではない）にする。
-func CalculateHoldings(rows []dto.TradeRow) (dto.HoldingsList, error) {
+func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow) (dto.HoldingsList, error) {
 	byCode := make(map[string][]dto.TradeRow)
 	for _, r := range rows {
 		byCode[r.Code] = append(byCode[r.Code], r)
 	}
+	splitsOf := splitsByCode(splits)
 
 	list := dto.HoldingsList{Holdings: make([]dto.Holding, 0, len(byCode))}
 	totals := make(map[dto.Currency]*currencyTotal)
 	// slices.Sorted は文字列を < で比べるので、Go の文字列としての昇順（"1301" < "130A" < "7203"）になる。
 	// あふれる銘柄が複数あっても、毎回同じ銘柄をエラーに入れるため、エラーもこの順に見つける。
 	for _, code := range slices.Sorted(maps.Keys(byCode)) {
-		s, held, err := calculateStock(byCode[code])
+		s, held, err := calculateStock(byCode[code], splitsOf[code])
 		if err != nil {
 			return dto.HoldingsList{}, fmt.Errorf("銘柄 %q: %w", code, err)
 		}
@@ -133,11 +136,10 @@ type calculatedStock struct {
 	gain      *stockGain // 丸める前の含み損益と取得額（合計に足す元）。価格がなければ nil
 }
 
-// calculateStock は、同じ銘柄の売買履歴 rows（1件以上）をたどって、一覧の1行を作る。
+// calculateStock は、同じ銘柄の売買履歴 rows（1件以上）と、その銘柄の分割 splits をたどって、一覧の1行を作る。
 // 保有数量が0（売り切った銘柄）なら held が false で、ほかの戻り値は使わない。
-func calculateStock(rows []dto.TradeRow) (s calculatedStock, held bool, err error) {
-	rows = sortTrades(rows)
-	quantity, acquisition, err := replayTrades(rows)
+func calculateStock(rows []dto.TradeRow, splits []dto.StockSplitRow) (s calculatedStock, held bool, err error) {
+	quantity, acquisition, err := replayTrades(traceEvents(rows, splits))
 	if err != nil {
 		return calculatedStock{}, false, err
 	}
@@ -148,7 +150,7 @@ func calculateStock(rows []dto.TradeRow) (s calculatedStock, held bool, err erro
 		return calculatedStock{}, false, fmt.Errorf("保有数量: %w", ErrCalculationOverflow)
 	}
 
-	// 銘柄名・通貨と最新の終値・基準日は銘柄ごとに決まる値で、どの行も同じなので、並べた後の先頭の行から取る。
+	// 銘柄名・通貨と最新の終値・基準日は銘柄ごとに決まる値で、どの行も同じなので、先頭の行から取る。
 	first := rows[0]
 	h := dto.Holding{Code: first.Code, Name: first.Name, Currency: first.Currency, Quantity: quantity.Int64()}
 
@@ -162,9 +164,13 @@ func calculateStock(rows []dto.TradeRow) (s calculatedStock, held bool, err erro
 	}
 	h.AcquisitionPriceHundredths = acquisitionHundredths.Int64()
 
-	valuation, err := applyClosePrice(&h, first, quantity, valuationUnit)
-	if err != nil {
-		return calculatedStock{}, false, err
+	// 最も新しい分割の日が最新の終値の取引日より後なら、終値が分割の前の値段かもしれないので、価格なしにする（株式分割の要件8）。
+	var valuation *big.Int
+	if !closePriceBeforeSplit(first, splits) {
+		valuation, err = applyClosePrice(&h, first, quantity, valuationUnit)
+		if err != nil {
+			return calculatedStock{}, false, err
+		}
 	}
 	s = calculatedStock{holding: h, valuation: valuation}
 	if valuation != nil {
@@ -177,15 +183,14 @@ func calculateStock(rows []dto.TradeRow) (s calculatedStock, held bool, err erro
 	return s, true, nil
 }
 
-// sortTrades は、同じ銘柄の売買履歴 rows を写して、たどる順（取引日の昇順 → id の昇順）に並べたものを返す。
-// 呼び出し側の rows は並べ替えない。
-func sortTrades(rows []dto.TradeRow) []dto.TradeRow {
-	sorted := slices.Clone(rows)
-	slices.SortFunc(sorted, func(a, b dto.TradeRow) int {
-		// 取引日は "YYYY-MM-DD" なので、文字列の昇順が日付の古い順になる。
-		return cmp.Or(cmp.Compare(a.TradeDate, b.TradeDate), cmp.Compare(a.ID, b.ID))
-	})
-	return sorted
+// closePriceBeforeSplit は、その銘柄の最新の終値の取引日が、最も新しい分割の日より前なら true を返す（株式分割の要件8）。
+// 同じ日なら false（分割の日の終値は分割の後の値段）。終値がない、または分割がなければ false。
+func closePriceBeforeSplit(first dto.TradeRow, splits []dto.StockSplitRow) bool {
+	if first.PriceDate == nil {
+		return false
+	}
+	latest, ok := latestSplitDate(splits)
+	return ok && latest > *first.PriceDate
 }
 
 // roundingUnits は、通貨 currency の、取得価格を四捨五入する単位 priceUnit と、評価額を切り捨てる単位 valuationUnit（どちらも 0.01 単位の整数）を返す。
@@ -201,12 +206,20 @@ func roundingUnits(currency dto.Currency) (priceUnit, valuationUnit int64, err e
 	}
 }
 
-// replayTrades は、たどる順に並べた売買履歴 rows（sortTrades の結果）を順にたどり、最後の保有数量 Q と取得価格 A（0.01 単位。丸めない）を返す。
+// replayTrades は、たどる順に並べた売買履歴と分割 events（traceEvents の結果）を順にたどり、最後の保有数量 Q と取得価格 A（0.01 単位。丸めない）を返す。
+// 分割では Q に分割後の株数を掛け、A をその株数で割る（保有数量が0のときは A は次の買いで置き換わるので、割っても響かない）。
 // 売りで Q が負になれば ErrNegativeQuantity を返す。
-func replayTrades(rows []dto.TradeRow) (quantity *big.Int, acquisition *big.Rat, err error) {
+func replayTrades(events []traceEvent) (quantity *big.Int, acquisition *big.Rat, err error) {
 	quantity = new(big.Int)
 	acquisition = new(big.Rat)
-	for _, r := range rows {
+	for _, e := range events {
+		if !e.isTrade {
+			ratio := big.NewInt(e.ratio)
+			quantity.Mul(quantity, ratio)
+			acquisition = new(big.Rat).Quo(acquisition, new(big.Rat).SetInt(ratio))
+			continue
+		}
+		r := e.trade
 		qty := big.NewInt(r.Quantity)
 		switch r.Side {
 		case dto.TradeSideBuy:

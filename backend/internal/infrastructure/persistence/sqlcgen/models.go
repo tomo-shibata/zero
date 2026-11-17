@@ -27,6 +27,13 @@ type StockPrice struct {
 	FetchedAt   pgtype.Timestamptz
 }
 
+type StockSplit struct {
+	StockCode string
+	SplitDate pgtype.Date
+	Ratio     int32
+	CreatedAt pgtype.Timestamptz
+}
+
 type Trade struct {
 	ID        int64
 	UserID    pgtype.UUID
