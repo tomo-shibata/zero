@@ -1,0 +1,34 @@
+.trade-history-table {
+  width: 100%;
+  /* 固定した見出しの下線（border）がスクロールで消えないよう、border-collapse は使わない（セルの下の線が、行の区切りになる）。 */
+  border-collapse: separate;
+  border-spacing: 0;
+  /* 幅 390px の画面（表の箱の幅は 342px ほど）でも、ふつうの桁の売買が横にスクロールせずに入る大きさにする。 */
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-history-table th,
+.trade-history-table td {
+  padding: 0.5rem 0.375rem;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+/*
+ * 見出しの行は、表の箱の中で上に固定する（表だけがスクロールする。要件5）。下線は上の th, td の border-bottom（表は border-collapse: separate）。
+ */
+.trade-history-table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* 株数・価格・金額は右に揃える（桁をそろえて読めるように）。 */
+.trade-history-table th:nth-child(n + 3),
+.trade-history-table td:nth-child(n + 3) {
+  text-align: right;
+}

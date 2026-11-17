@@ -21,6 +21,11 @@ type HoldingCardListProps = {
    * 並びを変えて保存するのは呼び出し側（このコンポーネントは保存しない）。
    */
   onMove: (activeCode: string, overCode: string | null) => void
+  /**
+   * カードを押したとき（ドラッグせずに押して離した・長押しせずにタップした・Enter を押した）に呼ばれる。画面を移すのは呼び出し側。
+   * 押したかどうかは、ドラッグを始めたかを知っている useCardReorder が決める（ブラウザの click は、ドラッグの後にも届くため使わない）。
+   */
+  onOpen: (code: string) => void
 }
 
 /**
@@ -31,10 +36,10 @@ type HoldingCardListProps = {
  * 読み上げ用のライブリージョンと操作の説明は、<ul> の外（<ul> の子は <li> だけ）に置く。
  * list-style: none だと Safari の VoiceOver がリストとして読まないことがあるので、role を明示する。
  */
-export function HoldingCardList({ holdings, onDelete, onMove }: HoldingCardListProps) {
+export function HoldingCardList({ holdings, onDelete, onMove, onOpen }: HoldingCardListProps) {
   const titleId = useId()
   const instructionsId = useId()
-  const reorder = useCardReorder({ holdings, onMove })
+  const reorder = useCardReorder({ holdings, onMove, onOpen })
 
   return (
     <>

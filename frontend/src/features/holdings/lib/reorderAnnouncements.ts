@@ -20,4 +20,4 @@ export const CANCELLED_ANNOUNCEMENT = '並べ替えを取り消しました。'
 
 /** カードの操作の説明（画面には出さない。カードの aria-describedby が指す）。 */
 export const SCREEN_READER_INSTRUCTIONS =
-  'スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。'
+  'スペースキーで持ち上げ、矢印キーで動かし、もう一度スペースキーで置きます。Esc で取り消します。Enter キーで売買履歴を開きます。'

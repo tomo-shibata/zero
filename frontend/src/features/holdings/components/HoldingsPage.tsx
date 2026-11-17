@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { Holding, HoldingsList } from '../../../entities/holding/model'
+import { stockHistoryPath } from '../../../shared/lib/routes'
 import { AlertDialog } from '../../../shared/ui/AlertDialog'
 import { Spinner } from '../../../shared/ui/Spinner'
 import { useHoldings } from '../hooks/useHoldings'
@@ -18,12 +20,13 @@ const SAVE_FAILED_MESSAGE = '並びの保存に失敗しました'
 
 /**
  * 保有株式一覧の画面（/holdings）。取得の状態（useHoldings）に応じて、表示するコンポーネントを選ぶコンテナ。
- * QueryClientProvider と Router は持たない（app 層で包む）。
+ * QueryClientProvider と Router は持たない（app 層で包む）。カードを押すと、その銘柄の売買履歴の画面（/holdings/<銘柄コード>）へ移る。
  *
  * 状態は「読み込み中 → 取得失敗 → 成功（0件／1件以上）」の順に判定する（プラン 4.4「画面の状態ごとの表示」）。
  */
 export function HoldingsPage() {
   const holdingsQuery = useHoldings()
+  const navigate = useNavigate()
   // 取得失敗のダイアログを開いているか（クライアント状態）。閉じた後は見出しだけを残す（要件 FR-22）。
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(true)
   const titleRef = useRef<HTMLHeadingElement>(null)
@@ -60,6 +63,9 @@ export function HoldingsPage() {
     setDeleteTarget({ code: holding.code, name: holding.name })
   }
 
+  // 銘柄ごとの売買履歴の画面へ移る（features/stock-history を直接 import せず、パスは shared/lib/routes で作る）。
+  const handleOpen = (code: string) => navigate(stockHistoryPath(code))
+
   const handleDeleteDialogClose = (deleted: boolean) => {
     // 削除したなら、開いた行はなくなる（一覧を取り直す）ので、残る見出しに移す。しなかったなら、開いた行の「⋯」に戻す。
     focusAfterDeleteRef.current = deleted ? 'title' : 'opener'
@@ -83,7 +89,7 @@ export function HoldingsPage() {
           <AlertDialog message={FETCH_ERROR_MESSAGE} onClose={handleErrorDialogClose} />
         )
       ) : (
-        <HoldingsContent list={holdingsQuery.data} onDelete={handleDelete} />
+        <HoldingsContent list={holdingsQuery.data} onDelete={handleDelete} onOpen={handleOpen} />
       )}
       {deleteTarget !== null && (
         <DeleteHoldingDialog
@@ -100,13 +106,15 @@ type HoldingsContentProps = {
   list: HoldingsList
   /** カードのメニューの「削除」が選ばれたときに呼ばれる。 */
   onDelete: (holding: Holding) => void
+  /** カードを押したときに呼ばれる。 */
+  onOpen: (code: string) => void
 }
 
 /**
  * 取得できた一覧の中身。0件なら空のメッセージだけ、1件以上なら合計の欄と、価格の今すぐ更新と、カードの並び（要件 FR-6・FR-7、カード表示の要件11）。
  * 0件のときは今すぐ更新を出さない（値段の更新の要件1）。
  */
-function HoldingsContent({ list, onDelete }: HoldingsContentProps) {
+function HoldingsContent({ list, onDelete, onOpen }: HoldingsContentProps) {
   // 並べ替えと保存（カード表示の要件23・要件30）。保存に失敗したら、カードの並びの直前に知らせる。
   const { move, saveFailed } = useHoldingsOrder()
   if (list.holdings.length === 0) {
@@ -121,7 +129,7 @@ function HoldingsContent({ list, onDelete }: HoldingsContentProps) {
           {SAVE_FAILED_MESSAGE}
         </p>
       )}
-      <HoldingCardList holdings={list.holdings} onDelete={onDelete} onMove={move} />
+      <HoldingCardList holdings={list.holdings} onDelete={onDelete} onMove={move} onOpen={onOpen} />
     </>
   )
 }

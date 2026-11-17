@@ -29,6 +29,12 @@ const E2E_DATABASE_CONFIG: pg.ClientConfig = {
 /** 利用者A（プラン 4.4「テストデータ」、db/seed/test.sql）。 */
 export const USER_A_ID = '00000000-0000-0000-0000-00000000000a'
 
+/**
+ * 利用者B（db/seed/test.sql）。E2E の API は利用者A として動くので、Bの売買履歴は画面に出ない。
+ * 「他の利用者だけが売買している銘柄」を作るために使う（銘柄ごとの売買履歴の画面の基準23）。
+ */
+export const USER_B_ID = '00000000-0000-0000-0000-00000000000b'
+
 /** db/seed/test.sql が入れる銘柄マスタ（プラン 4.4「テストデータ」）。これ以外の銘柄マスタは resetHoldingsData で消す。 */
 export const SEED_STOCK_CODES: readonly string[] = ['7203', '6758', '9984']
 
@@ -57,6 +63,8 @@ export type SplitSeed = { code: string; splitDate: string; ratio: number }
 export type HoldingsTestData = {
   stocks?: StockSeed[]
   trades?: TradeSeed[]
+  /** 利用者B の売買履歴（省略できる。銘柄ごとの売買履歴の画面の基準23。Aの画面には出ない）。配列の順に、Aの売買履歴の後に入れる。 */
+  otherUserTrades?: TradeSeed[]
   prices?: StockPriceSeed[]
   /** 株式分割（省略できる。株式分割のプラン 4.8 PR①）。stock_splits に入れる。 */
   splits?: SplitSeed[]
@@ -133,6 +141,7 @@ export async function insertHoldingsData(
 ): Promise<void> {
   const stocks = data.stocks ?? []
   const trades = data.trades ?? []
+  const otherUserTrades = data.otherUserTrades ?? []
   const prices = data.prices ?? []
   const splits = data.splits ?? []
   const order = data.order ?? []
@@ -160,6 +169,23 @@ export async function insertHoldingsData(
           trades.map((t) => t.quantity),
           trades.map((t) => t.price),
           trades.map((t) => t.tradeDate),
+        ],
+      )
+    }
+    if (otherUserTrades.length > 0) {
+      await client.query(
+        `INSERT INTO trades (user_id, stock_code, side, quantity, price, trade_date)
+         SELECT $1::uuid, t.code, t.side, t.quantity, t.price, t.trade_date
+         FROM unnest($2::text[], $3::text[], $4::bigint[], $5::numeric[], $6::date[])
+              WITH ORDINALITY AS t(code, side, quantity, price, trade_date, ord)
+         ORDER BY t.ord`,
+        [
+          USER_B_ID,
+          otherUserTrades.map((t) => t.code),
+          otherUserTrades.map((t) => t.side),
+          otherUserTrades.map((t) => t.quantity),
+          otherUserTrades.map((t) => t.price),
+          otherUserTrades.map((t) => t.tradeDate),
         ],
       )
     }
