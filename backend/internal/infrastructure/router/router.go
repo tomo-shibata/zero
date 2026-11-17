@@ -23,11 +23,13 @@ type Deps struct {
 	HoldingDeleteHandler *handler.HoldingDeleteHandler
 	// HoldingOrderHandler は、PUT /api/holding-order（並びの保存）を受け持つ。nil なら /api/holding-order を登録しない。
 	HoldingOrderHandler *handler.HoldingOrderHandler
+	// StockHistoryHandler は、GET /api/holdings/{code}/history（銘柄ごとの売買履歴）を受け持つ。nil なら /api/holdings/{code}/history を登録しない。
+	StockHistoryHandler *handler.StockHistoryHandler
 	// DevUserID は、ログイン中の利用者として扱う開発用利用者（認証を作るまでの代わり。プラン 6章の判断5）。
 	DevUserID uuid.UUID
 	// AllowedHosts は、/api/ 以下で受け付ける Host ヘッダー（"127.0.0.1:<PORT>" など。プラン 6章の判断12）。
 	// 空なら、/api/ 以下のルートはどの Host でも 403 になる（設定を忘れても開いたままにしない）。
-	// /api/ 以下にルートが1つもない（QueryHandler・PriceRefreshHandler・HoldingDeleteHandler・HoldingOrderHandler が nil）ときは、chi がミドルウェアを通さずに 404 を返す。
+	// /api/ 以下にルートが1つもない（QueryHandler・PriceRefreshHandler・HoldingDeleteHandler・HoldingOrderHandler・StockHistoryHandler が nil）ときは、chi がミドルウェアを通さずに 404 を返す。
 	AllowedHosts []string
 }
 
@@ -54,6 +56,9 @@ func New(d Deps) http.Handler {
 		}
 		if d.HoldingDeleteHandler != nil {
 			r.Method(http.MethodDelete, "/holdings/{code}", d.HoldingDeleteHandler)
+		}
+		if d.StockHistoryHandler != nil {
+			r.Method(http.MethodGet, "/holdings/{code}/history", d.StockHistoryHandler)
 		}
 		if d.HoldingOrderHandler != nil {
 			r.Method(http.MethodPut, "/holding-order", d.HoldingOrderHandler)

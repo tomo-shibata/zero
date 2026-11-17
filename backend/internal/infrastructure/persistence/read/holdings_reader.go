@@ -80,31 +80,9 @@ func (r *HoldingsReader) ListHoldingOrder(ctx context.Context, userID uuid.UUID)
 
 // toTradeRow は、DB の1行を dto.TradeRow にする。価格は 0.01 単位の整数、取引日は "YYYY-MM-DD" にする。
 func toTradeRow(d sqlcgen.ListTradeRowsRow) (dto.TradeRow, error) {
-	side := dto.TradeSide(d.Side)
-	if side != dto.TradeSideBuy && side != dto.TradeSideSell {
-		return dto.TradeRow{}, fmt.Errorf("知らない売買の種類 %q です", d.Side)
-	}
-	currency := dto.Currency(d.Currency)
-	if currency != dto.CurrencyJPY && currency != dto.CurrencyUSD {
-		return dto.TradeRow{}, fmt.Errorf("知らない通貨 %q です", d.Currency)
-	}
-	price, err := hundredthsFromNumeric(d.Price)
+	row, err := newTradeRow(d.ID, d.StockCode, d.Name, d.Currency, d.Side, d.Quantity, d.Price, d.TradeDate)
 	if err != nil {
-		return dto.TradeRow{}, fmt.Errorf("価格: %w", err)
-	}
-	tradeDate, err := formatDate(d.TradeDate)
-	if err != nil {
-		return dto.TradeRow{}, fmt.Errorf("取引日: %w", err)
-	}
-	row := dto.TradeRow{
-		ID:              d.ID,
-		Code:            d.StockCode,
-		Name:            d.Name,
-		Currency:        currency,
-		Side:            side,
-		Quantity:        d.Quantity,
-		PriceHundredths: price,
-		TradeDate:       tradeDate,
+		return dto.TradeRow{}, err
 	}
 
 	// 価格が一度も保存されていない銘柄は、終値と取引日がどちらも NULL（LEFT JOIN）。そのときは nil のまま返す。

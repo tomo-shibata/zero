@@ -128,8 +128,9 @@ func newDeps(pool *pgxpool.Pool, cfg config.API) router.Deps {
 		HoldingOrderHandler: handler.NewHoldingOrderHandler(
 			command.NewSaveHoldingOrder(write.NewHoldingOrderRepository(pool)),
 		),
-		DevUserID:    cfg.DevUserID,
-		AllowedHosts: allowedHosts(cfg.Port),
+		StockHistoryHandler: handler.NewStockHistoryHandler(query.NewGetStockHistory(read.NewStockHistoryReader(pool))),
+		DevUserID:           cfg.DevUserID,
+		AllowedHosts:        allowedHosts(cfg.Port),
 	}
 }
 
