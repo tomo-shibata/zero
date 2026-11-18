@@ -29,6 +29,9 @@ const (
 	alertDirectionBelow  = "below"
 )
 
+// rateTenthsToThreshold は、率（0.1% 単位）を条件の値（0.01% 単位）の単位にそろえる倍率。
+const rateTenthsToThreshold = 10
+
 // alertOutcome は、1つの条件の判定の結果。
 type alertOutcome struct {
 	evaluated bool // 判定できた。前の取引日からの条件で前の終値がないときは false（要件13）
@@ -77,8 +80,13 @@ func evaluatePeak(in dto.AlertEvaluationInput, divisors *splitDivisors, uh *user
 		peak := peakSince(in, divisors, uh.start)
 		uh.peak = &peak
 	}
-	peakClose, peakDate, peakDivisor := uh.peak.closeHundredths, uh.peak.date, uh.peak.divisor
-	rate, err := rateTenthsFrom(in.ClosePriceHundredths, new(big.Rat).SetFrac(big.NewInt(peakClose), peakDivisor))
+	return evaluateRateFromBase(in, uh.peak.closeHundredths, uh.peak.divisor, uh.peak.date, cond)
+}
+
+// evaluateRateFromBase は、基準の日（最高値の日・前の取引日）の終値 baseClose（割る前）を、その日より後の分割の株数の積 divisor で割った価格からの率が、
+// 条件 cond の値に届いたかを出す。通知の値には、率と、割った基準の価格（表示の丸め）と、基準の日 baseDate を持つ。
+func evaluateRateFromBase(in dto.AlertEvaluationInput, baseClose int64, divisor *big.Int, baseDate string, cond dto.AlertConditionRow) (alertOutcome, error) {
+	rate, err := rateTenthsFrom(in.ClosePriceHundredths, new(big.Rat).SetFrac(big.NewInt(baseClose), divisor))
 	if err != nil {
 		return alertOutcome{}, err
 	}
@@ -90,12 +98,12 @@ func evaluatePeak(in dto.AlertEvaluationInput, divisors *splitDivisors, uh *user
 	if err != nil {
 		return alertOutcome{}, err
 	}
-	basePrice, err := adjustPrice(peakClose, peakDivisor, priceUnit)
+	basePrice, err := adjustPrice(baseClose, divisor, priceUnit)
 	if err != nil {
 		return alertOutcome{}, err
 	}
 	return alertOutcome{evaluated: true, satisfied: satisfied, details: dto.AlertNotificationDetails{
-		RateTenths: new(rate), BasePriceHundredths: new(basePrice), BaseDate: new(peakDate),
+		RateTenths: new(rate), BasePriceHundredths: new(basePrice), BaseDate: new(baseDate),
 	}}, nil
 }
 
@@ -138,26 +146,7 @@ func evaluatePrev(in dto.AlertEvaluationInput, divisors *splitDivisors, cond dto
 		return alertOutcome{}, nil
 	}
 	prev := *in.PreviousClose
-	divisor := divisors.after(prev.TradingDate)
-	rate, err := rateTenthsFrom(in.ClosePriceHundredths, new(big.Rat).SetFrac(big.NewInt(prev.ClosePriceHundredths), divisor))
-	if err != nil {
-		return alertOutcome{}, err
-	}
-	satisfied, err := rateReaches(rate, cond)
-	if err != nil {
-		return alertOutcome{}, err
-	}
-	priceUnit, _, err := roundingUnits(in.Currency)
-	if err != nil {
-		return alertOutcome{}, err
-	}
-	basePrice, err := adjustPrice(prev.ClosePriceHundredths, divisor, priceUnit)
-	if err != nil {
-		return alertOutcome{}, err
-	}
-	return alertOutcome{evaluated: true, satisfied: satisfied, details: dto.AlertNotificationDetails{
-		RateTenths: new(rate), BasePriceHundredths: new(basePrice), BaseDate: new(prev.TradingDate),
-	}}, nil
+	return evaluateRateFromBase(in, prev.ClosePriceHundredths, divisors.after(prev.TradingDate), prev.TradingDate, cond)
 }
 
 // evaluatePnl は、今のカードの含み損益（表示する値）が値に届いたかを出す（要件14）。
@@ -228,7 +217,7 @@ func rateTenthsFrom(closeHundredths int64, base *big.Rat) (int64, error) {
 // up は 値以上、down は −値以下、either は絶対値が値以上。
 func rateReaches(rateTenths int64, cond dto.AlertConditionRow) (bool, error) {
 	// 率は 0.1% 単位、値は 0.01% 単位なので、率を10倍して比べる（率が大きくても int64 に収まる範囲しか来ないが、あふれないよう big で比べる）。
-	scaled := new(big.Int).Mul(big.NewInt(rateTenths), big.NewInt(10))
+	scaled := new(big.Int).Mul(big.NewInt(rateTenths), big.NewInt(rateTenthsToThreshold))
 	threshold := big.NewInt(cond.ThresholdHundredths)
 	switch cond.Direction {
 	case alertDirectionUp:

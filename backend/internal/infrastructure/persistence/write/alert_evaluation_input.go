@@ -13,11 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
+	"github.com/tomo-shibata/zero/backend/internal/domain/model"
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/sqlcgen"
 )
-
-// alertKindPeak は、最高値からの条件の種類（alert_conditions.kind）。終値の列を読むのは、この条件があるときだけ（プラン 判断10）。
-const alertKindPeak = "peak"
 
 // LoadEvaluationInput は、銘柄 code の、取引日 tradingDate・終値 closeHundredths の判定の入力を読む（プラン 4.3 の入力）。
 // D が最新の取引日でない、または最新の分割の日が D より後なら、判定は何もしないので、条件などは読まない
@@ -162,12 +160,12 @@ func (r *AlertRepository) loadPreviousClose(ctx context.Context, code string, da
 	return &dto.ClosingPriceRow{TradingDate: prevDate, ClosePriceHundredths: row.CloseHundredths}, nil
 }
 
-// loadCloses は、最高値の条件があるときだけ、D 以前の終値を取引日の昇順に返す。始まりは、最高値の条件を持つ利用者の最初の売買の日
+// loadCloses は、最高値の条件（model.AlertKindPeak）があるときだけ、D 以前の終値を取引日の昇順に返す。始まりは、最高値の条件を持つ利用者の最初の売買の日
 // （今の保有が始まった日はそれ以後なので、それより前の終値は要らない）。最高値の条件がなければ、読まずに nil を返す。
 func (r *AlertRepository) loadCloses(ctx context.Context, code string, date time.Time, conditions []dto.AlertConditionRow, trades map[uuid.UUID][]dto.TradeRow) ([]dto.ClosingPriceRow, error) {
 	from := ""
 	for _, c := range conditions {
-		if c.Kind != alertKindPeak {
+		if c.Kind != string(model.AlertKindPeak) {
 			continue
 		}
 		for _, t := range trades[c.UserID] {

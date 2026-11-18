@@ -954,9 +954,9 @@ func Test要件10_判定する日が今の保有が始まった日より前な�
 	cost := alAllCond(1, alUserA, alCost, alDown, 2000)
 	prev := alAllCond(2, alUserA, alPrev, alDown, 500)
 	cases := []struct {
-		name            string
-		rebuyDate       string
-		wantJudgments   []dto.AlertJudgment
+		name              string
+		rebuyDate         string
+		wantJudgments     []dto.AlertJudgment
 		wantNotifications []dto.AlertNotification
 	}{
 		{"買い直しの日が判定する日の翌日なら判定しない", "2026-11-11", nil, nil},
