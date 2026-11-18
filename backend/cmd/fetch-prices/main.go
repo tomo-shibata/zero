@@ -76,10 +76,11 @@ func run() error {
 // newFetchClosingPrices は、pool の DB を使う価格の取得処理を組み立てる。
 // 取得元を差し替えるときは、ここと cmd/api の newFetchClosingPrices の取得元だけを変える（要件 NFR-1、プラン 6章の判断4）。
 // 当面の取得元はダミー（要件 NFR-2）。
+// 保存した終値は、価格の変動の通知の判定に渡す（価格の変動の通知のプラン 4.4）。
 func newFetchClosingPrices(pool *pgxpool.Pool) *command.FetchClosingPrices {
 	return command.NewFetchClosingPrices(
 		pricesource.NewDummyPriceSource(),
 		write.NewHoldingRepository(pool),
 		write.NewClosingPriceRepository(pool),
-	)
+	).WithAlertEvaluator(command.NewEvaluatePriceAlerts(write.NewAlertRepository(pool)))
 }

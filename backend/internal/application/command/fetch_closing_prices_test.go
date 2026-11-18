@@ -2,6 +2,7 @@ package command_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -145,4 +146,130 @@ func TestAC16_共通インターフェースを実装したテスト用の取得
 	if p.PriceHundredths != fakePriceHundredths {
 		t.Errorf("保存された終値（0.01 単位）: got %d, want %d（テスト用の取得元が返した 1,234.5円）", p.PriceHundredths, fakePriceHundredths)
 	}
+}
+
+// recordingAlertEvaluator は、command.PriceAlertEvaluator を実装したテスト用の判定（境界の外側の fake）。
+// Execute に渡された終値を、呼ばれた回ごとに覚え、呼ばれた時点で保存済みだった終値（repo。nil なら覚えない）も覚える。
+// err が nil でなければ、それを返す。
+type recordingAlertEvaluator struct {
+	mu        sync.Mutex
+	repo      *memoryClosingPriceRepository
+	err       error
+	calls     [][]model.ClosingPrice
+	savedThen [][]model.ClosingPrice
+}
+
+func (e *recordingAlertEvaluator) Execute(_ context.Context, prices []model.ClosingPrice) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.calls = append(e.calls, slices.Clone(prices))
+	if e.repo != nil {
+		e.savedThen = append(e.savedThen, e.repo.all())
+	}
+	return e.err
+}
+
+// 補助 4.4: 判定をつなぐと、保存できた銘柄の終値だけを、保存の後に1回で渡す。
+// 7203 と 1301 は保存でき、6758 は取得元が「取得できない」、9984 は保存が失敗する → 渡されるのは 7203 と 1301 の終値（stocks の順）。
+// 判定が呼ばれた時点で、その2つはもう保存されている。FetchResult は判定をつながないときと同じ。
+func Test補助_4_4_判定をつなぐと保存できた銘柄の終値だけを保存の後に1回で渡す(t *testing.T) {
+	t.Parallel()
+	p7203 := mustAlertPrice(t, "7203", "2026-10-06", 300000)
+	p1301 := mustAlertPrice(t, "1301", "2026-10-06", 150000)
+	src := testPriceSource{prices: map[string]model.ClosingPrice{
+		"7203": p7203,
+		"1301": p1301,
+		"9984": mustAlertPrice(t, "9984", "2026-10-06", 100000),
+	}}
+	prices := &memoryClosingPriceRepository{saveErrors: map[string]error{"9984": errors.New("fake: disk full")}}
+	evaluator := &recordingAlertEvaluator{repo: prices}
+	fetch := command.NewFetchClosingPrices(src, memoryHoldingRepository{}, prices).WithAlertEvaluator(evaluator)
+
+	got := fetch.ExecuteStocks(t.Context(), heldYen("7203", "6758", "9984", "1301"))
+
+	if want := []string{"7203", "1301"}; !slices.Equal(got.Saved, want) {
+		t.Errorf("FetchResult.Saved: got %v, want %v", got.Saved, want)
+	}
+	if want := []string{"6758", "9984"}; !slices.Equal(got.Failed, want) {
+		t.Errorf("FetchResult.Failed: got %v, want %v", got.Failed, want)
+	}
+	if len(evaluator.calls) != 1 {
+		t.Fatalf("判定の呼び出し: got %d回 %+v, want 1回（保存できた終値をまとめて）", len(evaluator.calls), evaluator.calls)
+	}
+	if want := []model.ClosingPrice{p7203, p1301}; !slices.Equal(evaluator.calls[0], want) {
+		t.Errorf("判定に渡した終値:\n got %+v\nwant %+v（取得できなかった銘柄・保存できなかった銘柄は渡さない）", evaluator.calls[0], want)
+	}
+	for _, want := range []model.ClosingPrice{p7203, p1301} {
+		if !slices.Contains(evaluator.savedThen[0], want) {
+			t.Errorf("判定が呼ばれた時点の保存済みの終値 %+v に、%+v がない（保存の後に判定を呼ぶ）", evaluator.savedThen[0], want)
+		}
+	}
+}
+
+// 補助 4.4: Execute（定時の取得）でも、保存できた終値を1回で判定に渡す。
+func Test補助_4_4_定時の取得でも保存した終値を判定に渡す(t *testing.T) {
+	t.Parallel()
+	p7203 := mustAlertPrice(t, "7203", "2026-10-06", 300000)
+	src := testPriceSource{prices: map[string]model.ClosingPrice{"7203": p7203}}
+	evaluator := &recordingAlertEvaluator{}
+	fetch := command.NewFetchClosingPrices(src, memoryHoldingRepository{stocks: heldYen("7203")}, &memoryClosingPriceRepository{}).
+		WithAlertEvaluator(evaluator)
+
+	if _, err := fetch.Execute(t.Context()); err != nil {
+		t.Fatalf("Execute: got err %v, want nil", err)
+	}
+
+	if len(evaluator.calls) != 1 || !slices.Equal(evaluator.calls[0], []model.ClosingPrice{p7203}) {
+		t.Errorf("判定に渡した終値: got %+v, want [%+v] の1回", evaluator.calls, p7203)
+	}
+}
+
+// 補助 4.4・要件21: 判定が失敗しても、FetchResult は変えない（Saved に残り、Failed に入れない）。保存した終値も残る。
+func Test補助_要件21_判定が失敗しても取得の結果と保存した終値は変わらない(t *testing.T) {
+	t.Parallel()
+	p7203 := mustAlertPrice(t, "7203", "2026-10-06", 300000)
+	src := testPriceSource{prices: map[string]model.ClosingPrice{"7203": p7203}}
+	prices := &memoryClosingPriceRepository{}
+	evaluator := &recordingAlertEvaluator{err: errors.New("fake: 判定に失敗")}
+	fetch := command.NewFetchClosingPrices(src, memoryHoldingRepository{}, prices).WithAlertEvaluator(evaluator)
+
+	got := fetch.ExecuteStocks(t.Context(), heldYen("7203"))
+
+	if !slices.Equal(got.Saved, []string{"7203"}) || len(got.Failed) != 0 {
+		t.Errorf("FetchResult: got Saved=%v Failed=%v, want Saved=[7203] Failed=空（判定の失敗は結果に出さない）", got.Saved, got.Failed)
+	}
+	if saved := prices.all(); !slices.Equal(saved, []model.ClosingPrice{p7203}) {
+		t.Errorf("保存された終値: got %+v, want [%+v]", saved, p7203)
+	}
+	if len(evaluator.calls) != 1 {
+		t.Errorf("判定の呼び出し: got %d回, want 1回", len(evaluator.calls))
+	}
+}
+
+// 補助 4.4: 判定をつながない（nil を渡す）ときは、今と同じ（呼ばず、panic もしない）。
+func Test補助_4_4_判定がnilのときは判定を呼ばず今と同じに動く(t *testing.T) {
+	t.Parallel()
+	p7203 := mustAlertPrice(t, "7203", "2026-10-06", 300000)
+	src := testPriceSource{prices: map[string]model.ClosingPrice{"7203": p7203}}
+	prices := &memoryClosingPriceRepository{}
+	fetch := command.NewFetchClosingPrices(src, memoryHoldingRepository{}, prices).WithAlertEvaluator(nil)
+
+	got := fetch.ExecuteStocks(t.Context(), heldYen("7203"))
+
+	if !slices.Equal(got.Saved, []string{"7203"}) || len(got.Failed) != 0 {
+		t.Errorf("FetchResult: got Saved=%v Failed=%v, want Saved=[7203] Failed=空", got.Saved, got.Failed)
+	}
+	if saved := prices.all(); !slices.Equal(saved, []model.ClosingPrice{p7203}) {
+		t.Errorf("保存された終値: got %+v, want [%+v]", saved, p7203)
+	}
+}
+
+// mustAlertPrice は、model.NewClosingPrice で終値を作る。作れなければテストを止める。
+func mustAlertPrice(t *testing.T, code, tradingDate string, priceHundredths int64) model.ClosingPrice {
+	t.Helper()
+	p, err := model.NewClosingPrice(code, tradingDate, priceHundredths)
+	if err != nil {
+		t.Fatalf("model.NewClosingPrice(%q, %q, %d): %v", code, tradingDate, priceHundredths, err)
+	}
+	return p
 }

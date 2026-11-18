@@ -46,6 +46,24 @@ func TestAC14b_手動実行のtaskコマンドでもAC13と同じ価格が保存
 	assertStockPrices(t, pool, ac13WantPrices())
 }
 
+// 要件8（価格の変動の通知。task prices:fetch に判定をつなぐ。cmd/fetch-prices で判定を渡し忘れると落ちる）:
+// Aが 7203「買 2,500円 100株」、条件（直接）7203・3,000円 以上になったら → task prices:fetch を別プロセスで実行する
+// → 終了コードが 0 で、notifications に 7203・2026-10-06 の1行（ダミーの取得元の終値 3,000円で当てはまる）。
+func Test要件8_手動実行のtaskコマンドでも判定が動き通知ができる(t *testing.T) {
+	t.Parallel()
+	pool := newAlertDB(t)
+	condID := insertStockCondition(t, pool, seedUserA, "price", "7203", "above", "3000")
+
+	code, out := runPricesFetchTask(t, pool.Config().ConnString())
+
+	if code != 0 {
+		t.Errorf("task prices:fetch の終了コード: got %d, want 0\n出力:\n%s", code, out)
+	}
+	assertNotifications(t, pool, wantNotification{
+		conditionID: condID, stockCode: "7203", tradingDate: "2026-10-06", closeHundredths: 300000, details: `{}`,
+	})
+}
+
 // runPricesFetchTask は、ほかの環境変数を引き継ぎつつ DATABASE_URL だけを databaseURL にして、
 // リポジトリのルートを作業ディレクトリに `task prices:fetch` を別プロセスで実行し、終了コードと出力（標準出力と標準エラー）を返す。
 // 終了コードを得られない（起動できない・時間切れ）ときは、テストを止める。
