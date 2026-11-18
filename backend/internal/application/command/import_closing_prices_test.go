@@ -272,3 +272,107 @@ func Test補助_Saveは保存の失敗をエラーで返す(t *testing.T) {
 		t.Error("保存が失敗したとき: got err nil, want エラー")
 	}
 }
+
+// importAlertEvaluator は、command.PriceAlertEvaluator を実装したテスト用の判定（境界の外側の fake）。
+// Execute に渡された終値を覚え、呼ばれた時点で SaveAll が呼ばれていた回数も覚える。err が nil でなければ、それを返す。
+type importAlertEvaluator struct {
+	repo          *priceImportRepo
+	err           error
+	calls         [][]model.ClosingPrice
+	saveCountThen []int
+}
+
+func (e *importAlertEvaluator) Execute(_ context.Context, prices []model.ClosingPrice) error {
+	e.calls = append(e.calls, slices.Clone(prices))
+	e.saveCountThen = append(e.saveCountThen, len(e.repo.saveCalls))
+	return e.err
+}
+
+// 補助 4.4: 判定をつないだとき、保存が成功したら、保存した終値を1回で、保存の後に渡す。
+func Test補助_4_4_Saveは保存が成功したら保存した終値を1回で判定に渡す(t *testing.T) {
+	t.Parallel()
+	repo := priceImportRepoWithMaster()
+	evaluator := &importAlertEvaluator{repo: repo}
+	uc := command.NewImportClosingPrices(repo).WithAlertEvaluator(evaluator)
+	prices := []model.ClosingPrice{priceOf("7203", 285000), priceOf("AAPL", 18235)}
+
+	if err := uc.Save(t.Context(), prices); err != nil {
+		t.Fatalf("Save: got err %v, want nil", err)
+	}
+
+	if len(evaluator.calls) != 1 || !slices.Equal(evaluator.calls[0], prices) {
+		t.Errorf("判定に渡した終値: got %+v, want %+v の1回", evaluator.calls, prices)
+	}
+	if len(evaluator.saveCountThen) == 1 && evaluator.saveCountThen[0] != 1 {
+		t.Errorf("判定が呼ばれた時点の SaveAll の回数: got %d, want 1（コミットの後に判定を呼ぶ）", evaluator.saveCountThen[0])
+	}
+}
+
+// 補助 4.4: SaveAll が失敗したときは、判定を呼ばない（コミットが成功した後だけ）。エラーは今までどおり返す。
+func Test補助_4_4_Saveは保存が失敗したら判定を呼ばない(t *testing.T) {
+	t.Parallel()
+	repo := &priceImportRepo{saveErr: errors.New("db down")}
+	evaluator := &importAlertEvaluator{repo: repo}
+	uc := command.NewImportClosingPrices(repo).WithAlertEvaluator(evaluator)
+
+	err := uc.Save(t.Context(), []model.ClosingPrice{priceOf("7203", 285000)})
+
+	if err == nil {
+		t.Error("保存が失敗したとき: got err nil, want エラー")
+	}
+	if len(evaluator.calls) != 0 {
+		t.Errorf("保存が失敗したのに判定を呼んだ: %+v", evaluator.calls)
+	}
+}
+
+// 補助 4.4: 0件のときは、保存せず、判定も呼ばない。
+func Test補助_4_4_Saveは0件なら判定を呼ばない(t *testing.T) {
+	t.Parallel()
+	repo := &priceImportRepo{}
+	evaluator := &importAlertEvaluator{repo: repo}
+	uc := command.NewImportClosingPrices(repo).WithAlertEvaluator(evaluator)
+
+	for name, prices := range map[string][]model.ClosingPrice{"nil": nil, "空": {}} {
+		if err := uc.Save(t.Context(), prices); err != nil {
+			t.Errorf("Save(%s): got err %v, want nil", name, err)
+		}
+	}
+
+	if len(evaluator.calls) != 0 {
+		t.Errorf("0件なのに判定を呼んだ: %+v", evaluator.calls)
+	}
+}
+
+// 補助 4.4・要件21: 判定が失敗しても、Save は成功のまま（task の結果の表示は変えない）。保存した終値は残る。
+func Test補助_要件21_Saveは判定が失敗してもエラーを返さない(t *testing.T) {
+	t.Parallel()
+	repo := priceImportRepoWithMaster()
+	evaluator := &importAlertEvaluator{repo: repo, err: errors.New("fake: 判定に失敗")}
+	uc := command.NewImportClosingPrices(repo).WithAlertEvaluator(evaluator)
+
+	if err := uc.Save(t.Context(), []model.ClosingPrice{priceOf("7203", 285000)}); err != nil {
+		t.Errorf("Save: got err %v, want nil（判定の失敗は結果に出さない）", err)
+	}
+
+	if len(repo.saveCalls) != 1 {
+		t.Errorf("SaveAll の回数: got %d, want 1", len(repo.saveCalls))
+	}
+	if len(evaluator.calls) != 1 {
+		t.Errorf("判定の呼び出し: got %d回, want 1回", len(evaluator.calls))
+	}
+}
+
+// 補助 4.4: 判定が nil のときは、判定を呼ばず今と同じに動く（panic もしない）。
+func Test補助_4_4_判定がnilのときSaveは今と同じに動く(t *testing.T) {
+	t.Parallel()
+	repo := priceImportRepoWithMaster()
+	uc := command.NewImportClosingPrices(repo).WithAlertEvaluator(nil)
+
+	if err := uc.Save(t.Context(), []model.ClosingPrice{priceOf("7203", 285000)}); err != nil {
+		t.Errorf("Save: got err %v, want nil", err)
+	}
+
+	if len(repo.saveCalls) != 1 {
+		t.Errorf("SaveAll の回数: got %d, want 1", len(repo.saveCalls))
+	}
+}

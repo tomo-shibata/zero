@@ -23,12 +23,21 @@ type FetchClosingPrices struct {
 	source   PriceSource
 	holdings repository.HoldingRepository
 	prices   repository.ClosingPriceRepository
+	alerts   PriceAlertEvaluator // 保存した終値の価格の変動の通知の判定。nil なら判定しない
 }
 
 // NewFetchClosingPrices は、src から終値を取得し、holdings の保有銘柄について、prices に保存する FetchClosingPrices を返す。
 // 取得元は引数で受け取る。取得元を差し替えても、このユースケースのコードは変えずに済むようにするため（要件 NFR-1）。
 func NewFetchClosingPrices(src PriceSource, holdings repository.HoldingRepository, prices repository.ClosingPriceRepository) *FetchClosingPrices {
 	return &FetchClosingPrices{source: src, holdings: holdings, prices: prices}
+}
+
+// WithAlertEvaluator は、保存した終値を価格の変動の通知の判定に渡す e をつなぐ（価格の変動の通知のプラン 4.4）。
+// ExecuteStocks が、保存できた終値をまとめて、保存の後に1回渡す。e が nil なら判定しない（今までと同じ）。
+// 判定が失敗しても FetchResult は変えず、エラーはログに出すだけ（要件21）。
+func (c *FetchClosingPrices) WithAlertEvaluator(e PriceAlertEvaluator) *FetchClosingPrices {
+	c.alerts = e
+	return c
 }
 
 // Execute は、誰かの保有数量が1以上の銘柄ごとに、取得元から終値を取得して保存する（プラン 4.4「株価取得の決まり」）。
@@ -62,9 +71,11 @@ func (c *FetchClosingPrices) Execute(ctx context.Context) (FetchResult, error) {
 // 取得元が panic したときは、そのスタックも別の行でログに出す（fetchFromSource）。
 func (c *FetchClosingPrices) ExecuteStocks(ctx context.Context, stocks []repository.HeldStock) FetchResult {
 	var result FetchResult
+	var saved []model.ClosingPrice
 	for _, stock := range stocks {
 		code := stock.Code
-		if err := c.fetchAndSave(ctx, stock); err != nil {
+		price, err := c.fetchAndSave(ctx, stock)
+		if err != nil {
 			// 銘柄コード（DB の値）とエラーの文字列（取得元が作る）は、どちらも改行などを含みうるので %q で出す。
 			// そのまま出すと、偽のログ行を作られたり、1件の失敗が複数行に割れて読み違えたりするため（PR③ ステップ6 の S-1-2・S-2-2）。
 			log.Printf("株価取得: 銘柄 %q: %q", code, err)
@@ -72,40 +83,42 @@ func (c *FetchClosingPrices) ExecuteStocks(ctx context.Context, stocks []reposit
 			continue
 		}
 		result.Saved = append(result.Saved, code)
+		saved = append(saved, price)
 	}
+	evaluateAlerts(ctx, c.alerts, saved)
 	return result
 }
 
-// fetchAndSave は、銘柄 stock の終値を取得元から取得して保存する。
-func (c *FetchClosingPrices) fetchAndSave(ctx context.Context, stock repository.HeldStock) error {
+// fetchAndSave は、銘柄 stock の終値を取得元から取得して保存し、保存した終値を返す。
+func (c *FetchClosingPrices) fetchAndSave(ctx context.Context, stock repository.HeldStock) (model.ClosingPrice, error) {
 	code := stock.Code
 	// 取り消し（Ctrl+C、API サーバーの停止、定時実行の時間の上限）の後は、取得元を呼ばない。
 	// 取得元が ctx を見ない実装（ダミーなど）でも、取り消しの後に残りの銘柄の取得・保存を続けないため（4.4 決まり4）。
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("取り消されたので取得しません: %w", err)
+		return model.ClosingPrice{}, fmt.Errorf("取り消されたので取得しません: %w", err)
 	}
 	fetched, err := c.fetchFromSource(ctx, code)
 	if err != nil {
-		return fmt.Errorf("終値を取得できません: %w", err)
+		return model.ClosingPrice{}, fmt.Errorf("終値を取得できません: %w", err)
 	}
 	// 取得元が別の銘柄の終値を返したら、保存しない。保存すると、その別の銘柄の価格を黙って書き換えてしまうため。
 	if fetched.StockCode != code {
-		return fmt.Errorf("取得元が別の銘柄（%q）の終値を返しました", fetched.StockCode)
+		return model.ClosingPrice{}, fmt.Errorf("取得元が別の銘柄（%q）の終値を返しました", fetched.StockCode)
 	}
 	// ClosingPrice のフィールドは外から書けるので、取得元の実装が model.NewClosingPrice を通さずに作った値かもしれない。
 	// 保存する前に domain の決まり（終値は0より大きい、など）で確かめ直す（Command 側は domain の決まりを通して状態を変える）。
 	p, err := model.NewClosingPrice(fetched.StockCode, fetched.TradingDate, fetched.PriceHundredths)
 	if err != nil {
-		return fmt.Errorf("取得元が返した終値が正しくありません: %w", err)
+		return model.ClosingPrice{}, fmt.Errorf("取得元が返した終値が正しくありません: %w", err)
 	}
 	// 通貨の精度に合わない終値（円の 3000.25 など）は、丸めたり切り捨てたりせずに保存しない（要件5）。
 	if !stock.Currency.AcceptsPrice(p.PriceHundredths) {
-		return fmt.Errorf("取得元が返した終値（0.01 単位で %d）が、通貨 %q の精度に合いません", p.PriceHundredths, stock.Currency)
+		return model.ClosingPrice{}, fmt.Errorf("取得元が返した終値（0.01 単位で %d）が、通貨 %q の精度に合いません", p.PriceHundredths, stock.Currency)
 	}
 	if err := c.prices.Save(ctx, p); err != nil {
-		return fmt.Errorf("終値を保存できません: %w", err)
+		return model.ClosingPrice{}, fmt.Errorf("終値を保存できません: %w", err)
 	}
-	return nil
+	return p, nil
 }
 
 // fetchFromSource は、取得元から銘柄 code の終値を取得する。取得元が panic したら、その panic をエラーにして返す。

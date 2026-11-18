@@ -86,6 +86,37 @@ func Test要件1_taskコマンドで相対パスのCSVを今日の取引日で�
 	}
 }
 
+// 要件8（価格の変動の通知。task prices:import に判定をつなぐ。cmd/import-prices で判定を渡し忘れると落ちる）:
+// Aが 7203「買 2,500円 100株」、条件（直接）7203・3,000円 以上になったら。7203 の終値 3,000 の CSV を登録する
+// → 終了コード0で、notifications に 7203 の1行。取引日は、task の前と後に、テストの中で `time.Now()` の日本時間の日付を取り、そのどちらか
+// （日付を固定すると明日から落ち、0時をまたぐと日付が変わるため。今の要件1 のテストと同じ測り方）。
+func Test要件8_taskコマンドで価格のCSVを登録しても判定が動き通知ができる(t *testing.T) {
+	t.Parallel()
+	pool := newAlertDB(t)
+	condID := insertStockCondition(t, pool, seedUserA, "price", "7203", "above", "3000")
+	csvPath := writePriceCSV(t, priceCSV("7203,3000"))
+	japan := time.FixedZone("JST", 9*60*60)
+	dayBefore := time.Now().In(japan).Format(time.DateOnly)
+
+	code, out := runPricesImportTask(t, pool.Config().ConnString(), "CSV_FILE="+filepath.ToSlash(csvPath))
+
+	dayAfter := time.Now().In(japan).Format(time.DateOnly)
+	if code != 0 {
+		t.Fatalf("task prices:import の終了コード: got %d, want 0\n出力:\n%s", code, out)
+	}
+	got := readNotifications(t, pool)
+	if len(got) != 1 {
+		t.Fatalf("notifications の行: got %+v, want 7203 の1行", got)
+	}
+	n := got[0]
+	if n.conditionID != condID || n.stockCode != "7203" || n.closeHundredths != 300000 || n.details != "{}" {
+		t.Errorf("通知: got %+v, want 条件 %d・7203・終値 300000（0.01 単位）・details {}", n, condID)
+	}
+	if n.tradingDate != dayBefore && n.tradingDate != dayAfter {
+		t.Errorf("通知の取引日: got %s, want %s か %s（task の前と後の日本時間の日付のどちらか）", n.tradingDate, dayBefore, dayAfter)
+	}
+}
+
 // runPricesImportTask は、ほかの環境変数を引き継ぎつつ DATABASE_URL だけを databaseURL にして（CSV_FILE の環境変数は引き継がず）、
 // リポジトリのルートを作業ディレクトリに `task prices:import <args>` を別プロセスで実行し、終了コードと出力（標準出力と標準エラー）を返す。
 // 終了コードを得られない（起動できない・時間切れ）ときは、テストを止める。databaseURL にはパスワードが入るので、メッセージには出さない。
