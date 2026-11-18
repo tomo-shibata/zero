@@ -8,6 +8,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AlertCondition struct {
+	ID        int64
+	UserID    pgtype.UUID
+	Kind      string
+	Scope     string
+	StockCode string
+	Direction string
+	Threshold pgtype.Numeric
+	CreatedAt pgtype.Timestamptz
+}
+
+type AlertJudgment struct {
+	ConditionID int64
+	StockCode   string
+	TradingDate pgtype.Date
+	Satisfied   bool
+}
+
 type HoldingOrder struct {
 	UserID    pgtype.UUID
 	StockCode string
@@ -27,6 +45,23 @@ type ManagedAccountValuation struct {
 	Valuation     int64
 	Gain          int64
 	CreatedAt     pgtype.Timestamptz
+}
+
+type Notification struct {
+	ID                 int64
+	UserID             pgtype.UUID
+	ConditionID        int64
+	Kind               string
+	Scope              string
+	ConditionStockCode string
+	Direction          string
+	Threshold          pgtype.Numeric
+	StockCode          string
+	TradingDate        pgtype.Date
+	ClosePrice         pgtype.Numeric
+	Details            []byte
+	Seen               bool
+	CreatedAt          pgtype.Timestamptz
 }
 
 type Stock struct {

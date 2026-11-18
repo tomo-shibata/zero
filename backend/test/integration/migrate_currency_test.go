@@ -66,9 +66,11 @@ func Test補助_5_3_マイグレーション00006のdownの後にupし直すと�
 	if err != nil {
 		t.Fatalf("00006 を戻せない（down が通らない）: %v", err)
 	}
-	// おまかせ運用の PR① で 00010（managed_accounts）が最新になったので、00010、00009、00008、00007、00006 の順に戻る。
-	if len(results) != 5 || results[0].Source.Version != 10 || results[1].Source.Version != 9 || results[2].Source.Version != 8 || results[3].Source.Version != 7 || results[4].Source.Version != 6 {
-		t.Fatalf("戻したマイグレーション: got %+v, want 00010・00009・00008・00007・00006 の5つ（この順）", results)
+	// 価格の変動の通知の PR① で 00011（alert_conditions・alert_judgments・notifications）が最新になったので、
+	// 00011、00010、00009、00008、00007、00006 の順に戻る（00011 の down は3つのテーブルを消す。ここで通る）。
+	if len(results) != 6 || results[0].Source.Version != 11 || results[1].Source.Version != 10 || results[2].Source.Version != 9 ||
+		results[3].Source.Version != 8 || results[4].Source.Version != 7 || results[5].Source.Version != 6 {
+		t.Fatalf("戻したマイグレーション: got %+v, want 00011・00010・00009・00008・00007・00006 の6つ（この順）", results)
 	}
 	if columnExists(t, pool, "stocks", "currency") {
 		t.Error("00006 を戻した後も stocks.currency が残っている")

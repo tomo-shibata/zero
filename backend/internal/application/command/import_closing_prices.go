@@ -39,7 +39,8 @@ type PriceImportPlan struct {
 
 // ImportClosingPrices は、価格の CSV の登録のユースケース。銘柄マスタを読んで行を分け（Classify）、終値をまとめて保存する（Save）。
 type ImportClosingPrices struct {
-	repo repository.ClosingPriceImportRepository
+	repo   repository.ClosingPriceImportRepository
+	alerts PriceAlertEvaluator // 保存した終値の価格の変動の通知の判定。nil なら判定しない
 }
 
 // NewImportClosingPrices は、repo を使う ImportClosingPrices を返す。
@@ -85,10 +86,22 @@ func (u *ImportClosingPrices) Classify(ctx context.Context, rows []PriceImportRo
 	return plan, nil
 }
 
+// WithAlertEvaluator は、保存した終値を価格の変動の通知の判定に渡す e をつなぐ（価格の変動の通知のプラン 4.4）。
+// Save は、保存（SaveAll）のコミットが成功した後に、保存した終値をまとめて1回渡す。e が nil なら判定しない（今までと同じ）。
+// 判定が失敗しても Save は成功のままで、エラーはログに出すだけ（要件21）。
+func (u *ImportClosingPrices) WithAlertEvaluator(e PriceAlertEvaluator) *ImportClosingPrices {
+	u.alerts = e
+	return u
+}
+
 // Save は、prices を SaveAll で保存する。prices が0件なら何もしない（要件9）。
 func (u *ImportClosingPrices) Save(ctx context.Context, prices []model.ClosingPrice) error {
 	if len(prices) == 0 {
 		return nil
 	}
-	return u.repo.SaveAll(ctx, prices)
+	if err := u.repo.SaveAll(ctx, prices); err != nil {
+		return err
+	}
+	evaluateAlerts(ctx, u.alerts, prices)
+	return nil
 }

@@ -53,9 +53,11 @@ func run() int {
 	defer pool.Close()
 
 	return pricecsv.Run(ctx, pricecsv.RunInput{
-		CSVPath:  csvinput.ResolvePath(*workdir, *csvPath),
-		Today:    csvinput.TodayInJapan(time.Now()),
-		Importer: command.NewImportClosingPrices(write.NewClosingPriceImportRepository(pool)),
+		CSVPath: csvinput.ResolvePath(*workdir, *csvPath),
+		Today:   csvinput.TodayInJapan(time.Now()),
+		// 登録した終値は、価格の変動の通知の判定に渡す（価格の変動の通知のプラン 4.4）。
+		Importer: command.NewImportClosingPrices(write.NewClosingPriceImportRepository(pool)).
+			WithAlertEvaluator(command.NewEvaluatePriceAlerts(write.NewAlertRepository(pool))),
 	}, os.Stdout, os.Stderr)
 }
 

@@ -135,7 +135,10 @@ async function inE2ETransaction(
 export async function resetHoldingsData(): Promise<void> {
   await inE2ETransaction(async (client) => {
     // レートは全利用者で共有なので、前のテストのレートを残さない（ドルを円にまとめる合計のプラン 4.6）。
-    await client.query('TRUNCATE trades, stock_prices, holding_orders, stock_splits, usd_jpy_rates')
+    // 価格の変動の通知の3つの表は、銘柄マスタの行を消すときに外部キーで邪魔をしないよう、前のテストの分を空にする（価格の変動の通知のプラン 4.7）。
+    await client.query(
+      'TRUNCATE trades, stock_prices, holding_orders, stock_splits, usd_jpy_rates, alert_conditions, alert_judgments, notifications',
+    )
     await client.query('DELETE FROM stocks WHERE code <> ALL($1::text[])', [
       SEED_STOCK_CODES,
     ])
