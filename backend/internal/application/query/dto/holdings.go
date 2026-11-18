@@ -86,10 +86,31 @@ type CombinedTotal struct {
 	Rate                     UsdJpyRate // 換算に使ったレート（要件10）
 }
 
+// ManagedAccountRow は、DB から読んだ、おまかせ運用の口座ごとの最新の記録1件（おまかせ運用の要件4。計算する前）。
+type ManagedAccountRow struct {
+	Name                string
+	ValuationDate       string // その口座の、日付がいちばん新しい記録の日付（"YYYY-MM-DD"）
+	ValuationHundredths int64  // 評価額（0.01 単位。円の整数の100倍。4,000,000円は 400000000）
+	GainHundredths      int64  // 損益（0.01 単位。マイナスあり）
+}
+
+// ManagedAccount は、おまかせ運用のカード1枚の値（おまかせ運用の要件7・要件12）。金額は 0.01 単位（円なので100の倍数）。
+type ManagedAccount struct {
+	Name                     string
+	ValuationDate            string
+	ValuationHundredths      int64
+	PrincipalHundredths      int64 // 元本（評価額 − 損益）
+	UnrealizedGainHundredths int64 // 含み損益（損益そのまま）
+	UnrealizedGainRateTenths int64 // 率（0.1% 単位。33.3% は 333。損益が0なら0）
+}
+
 // HoldingsList は、利用者の保有株式一覧。
 type HoldingsList struct {
 	Holdings []Holding       // 銘柄コードの昇順（通貨によらない）。0件のときは空のスライス（nil ではない。API で null にしないため）
 	Totals   []CurrencyTotal // 保有のある通貨だけ、JPY → USD の順。0件のときは空のスライス（nil ではない）
 	// 円にまとめた合計。保有数量が1以上のドルの銘柄がない、またはレートがないときは nil（ドルを円にまとめる合計の要件2）
 	CombinedTotal *CombinedTotal
+	// おまかせ運用の口座のカードの値。名前のバイトの昇順（おまかせ運用の要件9）。口座がなければ空のスライス（nil ではない）。
+	// Totals の円と CombinedTotal には、口座の評価額と含み損益を含める（おまかせ運用の要件15〜要件18）。
+	ManagedAccounts []ManagedAccount
 }

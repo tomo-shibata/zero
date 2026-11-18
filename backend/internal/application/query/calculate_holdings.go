@@ -47,11 +47,14 @@ const (
 //     終値が分割の前の値段かもしれないため）。合計評価額の注記と含み損益も、価格のない銘柄と同じになる。
 //  8. 保有数量が1以上のドルの銘柄があり、かつレート rate があれば、通貨ごとの合計を円にまとめた CombinedTotal を付ける（combined_total.go。
 //     ドルを円にまとめる合計の要件2・要件6〜要件8）。どちらかが欠けるときは nil（rate が nil なら、今までと同じ結果になる）。
+//  9. おまかせ運用の口座 accounts（口座ごとの最新の記録。並びは決めない）があれば、カードの値を名前の昇順で ManagedAccounts に入れ、
+//     円の合計（評価額・含み損益・取得額）に足す（managed_account_values.go。おまかせ運用の要件12・要件15〜要件18）。
+//     口座が1つ以上あれば Totals に円が必ず入り、円にまとめた合計にも口座が含まれる。accounts が nil・空なら、ManagedAccounts は空のスライスで、ほかは今までと同じ結果になる。
 //
 // 計算は math/big で行い、桁あふれしないようにする。保有数量が途中で負になる銘柄があれば ErrNegativeQuantity、
 // 最後の値が int64 に収まらなければ ErrCalculationOverflow を（包んで）返す。値そのものは資産の額なので、エラー（ログ）には入れない。
 // rows が nil でも空でも、Holdings は空のスライス（nil ではない）にする。
-func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow, rate *dto.UsdJpyRate) (dto.HoldingsList, error) {
+func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow, rate *dto.UsdJpyRate, accounts []dto.ManagedAccountRow) (dto.HoldingsList, error) {
 	byCode := make(map[string][]dto.TradeRow)
 	for _, r := range rows {
 		byCode[r.Code] = append(byCode[r.Code], r)
@@ -91,6 +94,11 @@ func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow, rate *dt
 		}
 	}
 	var err error
+	// 口座の分を円の途中の値に足してから、通貨ごとの合計と円にまとめた合計を作る（どちらも口座を含んだ円の値を使う）。
+	list.ManagedAccounts, err = buildManagedAccounts(accounts, totals)
+	if err != nil {
+		return dto.HoldingsList{}, err
+	}
 	list.Totals, err = buildTotals(totals)
 	if err != nil {
 		return dto.HoldingsList{}, err

@@ -39,7 +39,11 @@ func (q *ListHoldings) Execute(ctx context.Context, userID uuid.UUID) (dto.Holdi
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("ドル円のレートを読めません: %w", err)
 	}
-	list, err := CalculateHoldings(rows, splits, rate)
+	accounts, err := q.reader.ListManagedAccounts(ctx, userID)
+	if err != nil {
+		return dto.HoldingsList{}, fmt.Errorf("おまかせ運用の口座を読めません: %w", err)
+	}
+	list, err := CalculateHoldings(rows, splits, rate, accounts)
 	if err != nil {
 		return dto.HoldingsList{}, fmt.Errorf("売買履歴から一覧を計算できません: %w", err)
 	}

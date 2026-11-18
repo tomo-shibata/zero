@@ -24,7 +24,7 @@ func splitRow(code, date string, ratio int64) dto.StockSplitRow {
 // calculateWithSplits は、分割 splits も渡して CalculateHoldings を呼び、エラーならテストを止める。
 func calculateWithSplits(t *testing.T, rows []dto.TradeRow, splits []dto.StockSplitRow) dto.HoldingsList {
 	t.Helper()
-	list, err := query.CalculateHoldings(rows, splits, nil)
+	list, err := query.CalculateHoldings(rows, splits, nil, nil)
 	if err != nil {
 		t.Fatalf("CalculateHoldings: got err %v, want nil", err)
 	}
@@ -136,7 +136,7 @@ func Test要件6_同じ日の分割と買いと売りは分割が先で買いと
 			s.buy(1, 100, 300000, "2026-03-30"),
 		}
 
-		_, err := query.CalculateHoldings(rows, splits, nil)
+		_, err := query.CalculateHoldings(rows, splits, nil, nil)
 
 		if !errors.Is(err, query.ErrNegativeQuantity) {
 			t.Errorf("CalculateHoldings: got err %v, want ErrNegativeQuantity", err)
@@ -370,7 +370,7 @@ func Test桁あふれ_分割を重ねて保有数量がint64に収まらなけ�
 		splitRow("7203", "2026-02-04", 1000),
 	}
 
-	_, err := query.CalculateHoldings(rows, splits, nil)
+	_, err := query.CalculateHoldings(rows, splits, nil, nil)
 
 	if !errors.Is(err, query.ErrCalculationOverflow) {
 		t.Errorf("CalculateHoldings: got err %v, want ErrCalculationOverflow", err)

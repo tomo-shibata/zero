@@ -24,7 +24,7 @@ func usdJpy(hundredths int64) *dto.UsdJpyRate {
 // calculateWithRate は、売買履歴 rows とレート rate で CalculateHoldings を呼び、エラーならテストを止める（株式分割はなし）。
 func calculateWithRate(t *testing.T, rows []dto.TradeRow, rate *dto.UsdJpyRate) dto.HoldingsList {
 	t.Helper()
-	list, err := query.CalculateHoldings(rows, nil, rate)
+	list, err := query.CalculateHoldings(rows, nil, rate, nil)
 	if err != nil {
 		t.Fatalf("CalculateHoldings: got err %v, want nil", err)
 	}
@@ -322,7 +322,7 @@ func Test補助_ドルの評価額にレートを掛けた値がint64に収ま�
 	t.Run("レート150円はあふれる", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := query.CalculateHoldings(rows, nil, usdJpy(15000))
+		_, err := query.CalculateHoldings(rows, nil, usdJpy(15000), nil)
 
 		if !errors.Is(err, query.ErrCalculationOverflow) {
 			t.Errorf("CalculateHoldings: got err %v, want ErrCalculationOverflow", err)
@@ -332,7 +332,7 @@ func Test補助_ドルの評価額にレートを掛けた値がint64に収ま�
 	t.Run("対照_レート1円なら収まる", func(t *testing.T) {
 		t.Parallel()
 
-		list, err := query.CalculateHoldings(rows, nil, usdJpy(100))
+		list, err := query.CalculateHoldings(rows, nil, usdJpy(100), nil)
 
 		if err != nil {
 			t.Fatalf("CalculateHoldings: got err %v, want nil", err)
@@ -357,7 +357,7 @@ func Test補助_ドルの含み損益にレートを掛けた値がint64に収�
 	t.Run("レート150円はあふれる", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := query.CalculateHoldings(rows, nil, usdJpy(15000))
+		_, err := query.CalculateHoldings(rows, nil, usdJpy(15000), nil)
 
 		if !errors.Is(err, query.ErrCalculationOverflow) {
 			t.Errorf("CalculateHoldings: got err %v, want ErrCalculationOverflow", err)
@@ -367,7 +367,7 @@ func Test補助_ドルの含み損益にレートを掛けた値がint64に収�
 	t.Run("対照_レート1円なら収まる", func(t *testing.T) {
 		t.Parallel()
 
-		list, err := query.CalculateHoldings(rows, nil, usdJpy(100))
+		list, err := query.CalculateHoldings(rows, nil, usdJpy(100), nil)
 
 		if err != nil {
 			t.Fatalf("CalculateHoldings: got err %v, want nil", err)

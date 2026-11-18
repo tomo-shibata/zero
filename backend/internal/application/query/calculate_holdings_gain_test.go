@@ -329,7 +329,7 @@ func Test補助_含み損益と率が桁あふれしたらErrCalculationOverflow
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := query.CalculateHoldings(tc.rows, nil, nil)
+			_, err := query.CalculateHoldings(tc.rows, nil, nil, nil)
 
 			if !errors.Is(err, query.ErrCalculationOverflow) {
 				t.Errorf("CalculateHoldings: got err %v, want ErrCalculationOverflow", err)

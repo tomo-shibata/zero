@@ -3,6 +3,7 @@ package query_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,6 +30,20 @@ type fixedRowsReader struct {
 	// rate・rateErr は、LatestUsdJpyRate が返すレートとエラー（指定しなければ nil, nil。ドルを円にまとめるプラン 5.3 PR①）。
 	rate    *dto.UsdJpyRate
 	rateErr error
+	// accounts・accountsErr は、ListManagedAccounts が返す口座ごとの最新の記録とエラー（指定しなければ空のスライス。おまかせ運用のプラン 5.3 PR②）。
+	accounts    []dto.ManagedAccountRow
+	accountsErr error
+}
+
+// ListManagedAccounts は、accountsErr があればそのエラーを、なければ accounts（nil なら空のスライス）を返す。
+func (r *fixedRowsReader) ListManagedAccounts(context.Context, uuid.UUID) ([]dto.ManagedAccountRow, error) {
+	if r.accountsErr != nil {
+		return nil, r.accountsErr
+	}
+	if r.accounts == nil {
+		return []dto.ManagedAccountRow{}, nil
+	}
+	return r.accounts, nil
 }
 
 func (r *fixedRowsReader) LatestUsdJpyRate(context.Context) (*dto.UsdJpyRate, error) {
@@ -179,6 +194,57 @@ func Test補助_Executeは読み取りのレートを円にまとめる計算に
 	}
 	if got.CombinedTotal.ValuationHundredths != 57000000 {
 		t.Errorf("CombinedTotal.ValuationHundredths: got %d, want 57000000", got.CombinedTotal.ValuationHundredths)
+	}
+}
+
+// おまかせ運用のプラン 5.2（list_holdings_test.go）・4.3: 偽の reader の口座が CalculateHoldings に渡る（ManagedAccounts に出る）。
+// 売買履歴は 7203「買 2,500円 100株」（価格あり）、口座は WealthNavi（2026-11-16・評価額 4,000,000円・損益 +1,000,000円）
+// → ManagedAccounts は WealthNavi の1つ（元本 3,000,000円 = 300000000・含み損益 100000000・率 33.3% = 333）。
+// 円の合計の評価額は 7203 の 300,000円 と口座の 4,000,000円 の和 4,300,000円（430000000）。
+func Test補助_Executeは読み取りの口座を計算に渡す(t *testing.T) {
+	t.Parallel()
+	reader := &fixedRowsReader{
+		rows: []dto.TradeRow{toyota().buy(1, 100, 250000, "2026-01-10")},
+		accounts: []dto.ManagedAccountRow{
+			{Name: "WealthNavi", ValuationDate: "2026-11-16", ValuationHundredths: 400000000, GainHundredths: 100000000},
+		},
+	}
+	q := query.NewListHoldings(reader)
+
+	got, err := q.Execute(t.Context(), userA)
+
+	if err != nil {
+		t.Fatalf("Execute: got err %v, want nil", err)
+	}
+	want := []dto.ManagedAccount{{
+		Name:                     "WealthNavi",
+		ValuationDate:            "2026-11-16",
+		ValuationHundredths:      400000000,
+		PrincipalHundredths:      300000000,
+		UnrealizedGainHundredths: 100000000,
+		UnrealizedGainRateTenths: 333,
+	}}
+	if !reflect.DeepEqual(got.ManagedAccounts, want) {
+		t.Errorf("ManagedAccounts: got %+v, want %+v", got.ManagedAccounts, want)
+	}
+	if len(got.Totals) != 1 || got.Totals[0].ValuationHundredths != 430000000 {
+		t.Errorf("Totals（円の評価額は 7203 の 300,000円 と口座の 4,000,000円 の和 = 430000000）: got %+v", got.Totals)
+	}
+}
+
+// おまかせ運用のプラン 5.2（list_holdings_test.go）: ListManagedAccounts がエラーなら、Execute もそのエラーを（包んで）返す。
+func Test補助_Executeは口座の読み取りが失敗したらエラーを返す(t *testing.T) {
+	t.Parallel()
+	errAccounts := errors.New("fake: 口座の読み取りに失敗")
+	q := query.NewListHoldings(&fixedRowsReader{
+		rows:        []dto.TradeRow{toyota().buy(1, 100, 250000, "2026-01-10")},
+		accountsErr: errAccounts,
+	})
+
+	_, err := q.Execute(t.Context(), userA)
+
+	if !errors.Is(err, errAccounts) {
+		t.Errorf("Execute: got err %v, want 口座の読み取りのエラーを包んだもの", err)
 	}
 }
 
