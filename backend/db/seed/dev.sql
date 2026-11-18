@@ -24,6 +24,14 @@ INSERT INTO trades (user_id, stock_code, side, quantity, price, trade_date) VALU
     ('00000000-0000-0000-0000-000000000001', '6758', 'buy',  10, 3200, '2026-01-10'),
     ('00000000-0000-0000-0000-000000000001', 'AAPL', 'buy',  10, 150.25, '2026-01-10');
 
+-- 開発用利用者のおまかせ運用の口座（おまかせ運用のプラン 判断8）。偽物の口座（WealthNavi。記録2件）で、金額は説明用の値。
+-- 口座の表を先に入れ、記録は口座の外部キーで結ぶ。最新の記録（2026-11-16）は、評価額 4,000,000円・損益 1,000,000円（元本 3,000,000円）。
+INSERT INTO managed_accounts (user_id, name) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'WealthNavi');
+INSERT INTO managed_account_valuations (user_id, name, valuation_date, valuation, gain) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'WealthNavi', '2026-10-31', 3950000, 950000),
+    ('00000000-0000-0000-0000-000000000001', 'WealthNavi', '2026-11-16', 4000000, 1000000);
+
 -- ドル円のレート（ドルを円にまとめる合計の要件13）。全利用者で共有する。本物のレートは人間が SQL で入れる（要件15。docs/database/tables.md）。
 INSERT INTO usd_jpy_rates (rate_date, rate) VALUES
     ('2026-11-17', 150.00);

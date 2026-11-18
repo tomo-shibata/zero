@@ -14,6 +14,21 @@ type HoldingOrder struct {
 	Position  int32
 }
 
+type ManagedAccount struct {
+	UserID    pgtype.UUID
+	Name      string
+	CreatedAt pgtype.Timestamptz
+}
+
+type ManagedAccountValuation struct {
+	UserID        pgtype.UUID
+	Name          string
+	ValuationDate pgtype.Date
+	Valuation     int64
+	Gain          int64
+	CreatedAt     pgtype.Timestamptz
+}
+
 type Stock struct {
 	Code     string
 	Name     string

@@ -1,0 +1,69 @@
+// Command import-managed は、おまかせ運用の CSV を、指定した利用者の口座と記録として DATABASE_URL の DB に取り込む
+// （おまかせ運用の要件25。task managed:import で実行する。マイグレーションの適用は task が先に行う）。
+//
+// 取り込みの中身（CSV の確かめ・取り込み・文言・終了コード）は interface/managedcsv の Run にあり、この main は、
+// 引数と DB への接続を用意して Run を呼ぶだけにする（統合テストが Run を直接呼べるように。import-trades と同じ）。
+// 終了コードは、成功が 0、取り込めなかったときが 1。Run を呼ぶ前の失敗（設定の読み込み・DB への接続）も 1 で、理由を標準エラーに出す。
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/tomo-shibata/zero/backend/internal/application/command"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/config"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/database"
+	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/write"
+	"github.com/tomo-shibata/zero/backend/internal/interface/csvinput"
+	"github.com/tomo-shibata/zero/backend/internal/interface/managedcsv"
+)
+
+func main() {
+	os.Exit(run())
+}
+
+// run は、引数を読み、DB につないで managedcsv.Run を呼び、終了コードを返す。
+func run() int {
+	csvPath := flag.String("csv", "", "取り込む CSV のパス（task の CSV_FILE）")
+	userID := flag.String("user", "", "取り込む先の利用者の ID（task の USER_ID）")
+	workdir := flag.String("workdir", "", "task を実行したディレクトリ（-csv が相対パスのとき、ここからのパスとして読む）")
+	flag.Parse()
+
+	// Ctrl+C で止めたときは、取り込みの途中の処理を取り消す（トランザクションは元に戻り、何も変わらない）。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// 引数が足りないときは、DB につなぐ前に、Run と同じ形で止める。
+	if *csvPath == "" || *userID == "" {
+		return managedcsv.FailMissingArgs(os.Stderr)
+	}
+
+	databaseURL, err := config.LoadDatabaseURL()
+	if err != nil {
+		return failBeforeRun(err)
+	}
+	pool, err := database.Connect(ctx, databaseURL)
+	if err != nil {
+		return failBeforeRun(err)
+	}
+	defer pool.Close()
+
+	return managedcsv.Run(ctx, managedcsv.RunInput{
+		CSVPath:  csvinput.ResolvePath(*workdir, *csvPath),
+		UserID:   *userID,
+		Today:    csvinput.TodayInJapan(time.Now()),
+		Importer: command.NewImportManagedAccounts(write.NewManagedAccountRepository(pool)),
+	}, os.Stdout, os.Stderr)
+}
+
+// failBeforeRun は、Run を呼ぶ前の失敗 err を、取り込みの誤りと同じ形（先頭の行と理由の1行）で標準エラーに出し、終了コード 1 を返す。
+func failBeforeRun(err error) int {
+	_, _ = fmt.Fprintln(os.Stderr, managedcsv.FailedHeadline)
+	_, _ = fmt.Fprintln(os.Stderr, err)
+	return 1
+}
