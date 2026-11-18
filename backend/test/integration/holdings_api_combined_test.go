@@ -62,7 +62,8 @@ func basis1ResponseJSON(combinedTotal string) string {
 			{"currency": "USD", "valuation": "1800.00", "excludesUnpriced": false,
 			 "unrealizedGain": "297.50", "unrealizedGainRate": "19.8"}
 		],
-		"combinedTotal": ` + combinedTotal + `
+		"combinedTotal": ` + combinedTotal + `,
+		"managedAccounts": []
 	}`
 }
 

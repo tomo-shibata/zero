@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tomo-shibata/zero/backend/internal/application/query/dto"
@@ -307,5 +308,131 @@ func Test補助_円にまとめた合計がnilなら本文のcombinedTotalはnul
 
 	if got != nil {
 		t.Errorf("combinedTotal: got %v, want null", got)
+	}
+}
+
+// ---- おまかせ運用の口座（docs/plans/managed-account/plan.md 4.4・4.8 PR②・5.1 の基準7・5.2 の「応答」。PR②） ----
+
+// marshalManagedAccounts は、list を newHoldingsResponse に通して json.Marshal し、本文の managedAccounts を取り出す。
+// 本文の文字列も返す。キーがなければテストを止める（キーは常にあり、値は配列。4.4）。
+func marshalManagedAccounts(t *testing.T, list dto.HoldingsList) (any, string) {
+	t.Helper()
+	body, err := newHoldingsResponse(list)
+	if err != nil {
+		t.Fatalf("newHoldingsResponse: got err %v, want nil", err)
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("本文を JSON として読めない: %v\n本文: %s", err, raw)
+	}
+	got, ok := decoded["managedAccounts"]
+	if !ok {
+		t.Fatalf("本文に managedAccounts のキーがない（キーは常にある）\n本文: %s", raw)
+	}
+	return got, string(raw)
+}
+
+// 基準7（API の形。4.4）: カードの値 (a)(b)(e) の ManagedAccounts → managedAccounts の1つの口座の JSON が
+// (a) "valuation":"2700000","principal":"3000000","unrealizedGain":"-300000","unrealizedGainRate":"-10.0"
+// (b) "valuation":"3000000","principal":"3000000","unrealizedGain":"0","unrealizedGainRate":"0.0"
+// (e) "valuation":"1000","principal":"999","unrealizedGain":"1","unrealizedGainRate":"0.1"。
+// name と valuationDate は渡したまま。金額は円の整数の文字列（円の通貨ごとの合計と同じ形）、率は符号付きの小数1桁（プラスに "+" は付けない）。
+func Test基準7_口座の金額と率は文字列にして返す(t *testing.T) {
+	cases := []struct {
+		name    string
+		account dto.ManagedAccount
+		want    map[string]any
+	}{
+		{
+			name: "a_-300000円",
+			account: dto.ManagedAccount{
+				Name: "WealthNavi", ValuationDate: "2026-11-16",
+				ValuationHundredths: 270000000, PrincipalHundredths: 300000000, UnrealizedGainHundredths: -30000000, UnrealizedGainRateTenths: -100,
+			},
+			want: map[string]any{
+				"name": "WealthNavi", "valuation": "2700000", "principal": "3000000",
+				"unrealizedGain": "-300000", "unrealizedGainRate": "-10.0", "valuationDate": "2026-11-16",
+			},
+		},
+		{
+			name: "b_0円",
+			account: dto.ManagedAccount{
+				Name: "WealthNavi", ValuationDate: "2026-11-16",
+				ValuationHundredths: 300000000, PrincipalHundredths: 300000000, UnrealizedGainHundredths: 0, UnrealizedGainRateTenths: 0,
+			},
+			want: map[string]any{
+				"name": "WealthNavi", "valuation": "3000000", "principal": "3000000",
+				"unrealizedGain": "0", "unrealizedGainRate": "0.0", "valuationDate": "2026-11-16",
+			},
+		},
+		{
+			name: "e_1円",
+			account: dto.ManagedAccount{
+				Name: "WealthNavi", ValuationDate: "2026-11-16",
+				ValuationHundredths: 100000, PrincipalHundredths: 99900, UnrealizedGainHundredths: 100, UnrealizedGainRateTenths: 1,
+			},
+			want: map[string]any{
+				"name": "WealthNavi", "valuation": "1000", "principal": "999",
+				"unrealizedGain": "1", "unrealizedGainRate": "0.1", "valuationDate": "2026-11-16",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			list := dto.HoldingsList{
+				Holdings: []dto.Holding{}, Totals: []dto.CurrencyTotal{},
+				ManagedAccounts: []dto.ManagedAccount{tc.account},
+			}
+
+			got, _ := marshalManagedAccounts(t, list)
+
+			if want := []any{tc.want}; !reflect.DeepEqual(got, want) {
+				t.Errorf("managedAccounts:\n got %v\nwant %v", got, want)
+			}
+		})
+	}
+}
+
+// 補助（4.4・プラン 5.2）: ManagedAccounts が空のスライスでも nil でも、本文は "managedAccounts":[]（null にしない）。
+func Test補助_口座が0件なら本文のmanagedAccountsは空の配列でnullにしない(t *testing.T) {
+	cases := []struct {
+		name     string
+		accounts []dto.ManagedAccount
+	}{
+		{"空のスライス", []dto.ManagedAccount{}},
+		{"nil", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			list := dto.HoldingsList{Holdings: []dto.Holding{}, Totals: []dto.CurrencyTotal{}, ManagedAccounts: tc.accounts}
+
+			got, raw := marshalManagedAccounts(t, list)
+
+			if want := []any{}; !reflect.DeepEqual(got, want) {
+				t.Errorf("managedAccounts: got %#v, want 空の配列（null ではない）\n本文: %s", got, raw)
+			}
+			if !strings.Contains(raw, `"managedAccounts":[]`) {
+				t.Errorf("本文に \"managedAccounts\":[] がない\n本文: %s", raw)
+			}
+		})
+	}
+}
+
+// 補助（4.4・プラン 5.2）: 口座の評価額が100の倍数でない（円の端数がある）ときは、黙って切り捨てずにエラー（今の formatValuation と同じ）。
+func Test補助_口座の評価額に円の端数があればエラー(t *testing.T) {
+	list := dto.HoldingsList{
+		Holdings: []dto.Holding{}, Totals: []dto.CurrencyTotal{},
+		ManagedAccounts: []dto.ManagedAccount{{
+			Name: "WealthNavi", ValuationDate: "2026-11-16",
+			ValuationHundredths: 400000050, PrincipalHundredths: 300000000, UnrealizedGainHundredths: 100000000, UnrealizedGainRateTenths: 333,
+		}},
+	}
+
+	if _, err := newHoldingsResponse(list); err == nil {
+		t.Errorf("newHoldingsResponse: got nil, want エラー（評価額 4,000,000.50円は円の整数でない）")
 	}
 }

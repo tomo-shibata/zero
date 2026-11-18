@@ -17,6 +17,9 @@ import (
 	"github.com/tomo-shibata/zero/backend/internal/infrastructure/persistence/sqlcgen"
 )
 
+// yenToHundredths は、円の整数（おまかせ運用の評価額・損益）を 0.01 単位の整数にする倍率。
+const yenToHundredths = 100
+
 // HoldingsReader は、PostgreSQL から売買履歴を読む query.HoldingsReader の実装。
 type HoldingsReader struct {
 	queries *sqlcgen.Queries
@@ -98,6 +101,29 @@ func (r *HoldingsReader) LatestUsdJpyRate(ctx context.Context) (*dto.UsdJpyRate,
 		return nil, fmt.Errorf("ドル円のレート: %w", err)
 	}
 	return &dto.UsdJpyRate{RateDate: rateDate, RateHundredths: hundredths}, nil
+}
+
+// ListManagedAccounts は、利用者 userID のおまかせ運用の口座ごとに、日付がいちばん新しい記録を1件ずつ返す（並びは決めない）。
+// 金額は 0.01 単位の整数（円の整数の100倍）にする。0件のときは空のスライスを返す。
+func (r *HoldingsReader) ListManagedAccounts(ctx context.Context, userID uuid.UUID) ([]dto.ManagedAccountRow, error) {
+	dbRows, err := r.queries.ListLatestManagedValuations(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("おまかせ運用の口座の問い合わせに失敗しました: %w", err)
+	}
+	accounts := make([]dto.ManagedAccountRow, 0, len(dbRows))
+	for _, d := range dbRows {
+		valuationDate, err := formatDate(d.ValuationDate)
+		if err != nil {
+			return nil, fmt.Errorf("口座 %q の評価額の基準日: %w", d.Name, err)
+		}
+		accounts = append(accounts, dto.ManagedAccountRow{
+			Name:                d.Name,
+			ValuationDate:       valuationDate,
+			ValuationHundredths: d.Valuation * yenToHundredths,
+			GainHundredths:      d.Gain * yenToHundredths,
+		})
+	}
+	return accounts, nil
 }
 
 // toTradeRow は、DB の1行を dto.TradeRow にする。価格は 0.01 単位の整数、取引日は "YYYY-MM-DD" にする。

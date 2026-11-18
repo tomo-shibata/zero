@@ -23,4 +23,7 @@ type HoldingsReader interface {
 	ListHoldingOrder(ctx context.Context, userID uuid.UUID) ([]string, error)
 	// LatestUsdJpyRate は、日付がいちばん新しいドル円のレートを返す（ドルを円にまとめる合計の要件14。全利用者で共有）。1件もなければ nil, nil。
 	LatestUsdJpyRate(ctx context.Context) (*dto.UsdJpyRate, error)
+	// ListManagedAccounts は、利用者 userID のおまかせ運用の口座ごとに、日付がいちばん新しい記録を1件ずつ返す（おまかせ運用の要件4・要件5）。
+	// 並び順は決めない（名前の順にするのは CalculateHoldings）。口座がなければ空のスライス。
+	ListManagedAccounts(ctx context.Context, userID uuid.UUID) ([]dto.ManagedAccountRow, error)
 }

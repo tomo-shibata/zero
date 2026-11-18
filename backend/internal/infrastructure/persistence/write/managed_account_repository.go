@@ -16,14 +16,17 @@ import (
 )
 
 // ManagedAccountRepository は、PostgreSQL へのおまかせ運用の口座と記録の書き込みの実装。
-// 今は CSV の取り込み（repository.ManagedAccountImportRepository）だけ。口座の削除（PR②）はここに足す。
+// CSV の取り込み（repository.ManagedAccountImportRepository）と、口座の削除（repository.ManagedAccountDeleteRepository）を受け持つ。
 type ManagedAccountRepository struct {
 	pool    *pgxpool.Pool
 	queries *sqlcgen.Queries
 }
 
-// ManagedAccountRepository が repository.ManagedAccountImportRepository を満たすことを、コンパイル時に確かめる。
-var _ repository.ManagedAccountImportRepository = (*ManagedAccountRepository)(nil)
+// ManagedAccountRepository が repository.ManagedAccountImportRepository と repository.ManagedAccountDeleteRepository を満たすことを、コンパイル時に確かめる。
+var (
+	_ repository.ManagedAccountImportRepository = (*ManagedAccountRepository)(nil)
+	_ repository.ManagedAccountDeleteRepository = (*ManagedAccountRepository)(nil)
+)
 
 // NewManagedAccountRepository は、pool の DB に口座と記録を書き込む ManagedAccountRepository を返す。
 func NewManagedAccountRepository(pool *pgxpool.Pool) *ManagedAccountRepository {
@@ -110,6 +113,37 @@ func copyManagedValuations(ctx context.Context, tx pgx.Tx, owner pgtype.UUID, va
 	}
 	if copied != int64(len(valuations)) {
 		return fmt.Errorf("記録を %d 件登録するはずが %d 件でした", len(valuations), copied)
+	}
+	return nil
+}
+
+// DeleteManagedAccount は、1つのトランザクションで、利用者の行をロックし、その利用者の名前 name の口座を消す（記録も消える）。
+// 名前は書いたとおりに比べる。1つも消えなければ repository.ErrManagedAccountNotFound を返す（何も変えない）。
+// 消す条件は1つの DELETE（db/query/managed_accounts.sql の DeleteManagedAccountOf）で決まるので、消えた件数が本当に消した件数になる。
+func (r *ManagedAccountRepository) DeleteManagedAccount(ctx context.Context, userID uuid.UUID, name string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("トランザクションを始められません: %w", err)
+	}
+	// 取り込みと同じく、Rollback と Commit には ctx の取り消しを引き継がない（コミットされたか分からないまま返さないため）。
+	finishCtx := context.WithoutCancel(ctx)
+	defer func() { _ = tx.Rollback(finishCtx) }()
+
+	owner := pgtype.UUID{Bytes: userID, Valid: true}
+	q := r.queries.WithTx(tx)
+	// 同じ利用者の取り込みと削除が同時に動いても、順番に動くよう、利用者の行をロックする（プラン 判断7）。
+	if err := q.LockUser(ctx, owner); err != nil {
+		return fmt.Errorf("利用者の行のロックに失敗しました: %w", err)
+	}
+	deleted, err := q.DeleteManagedAccountOf(ctx, sqlcgen.DeleteManagedAccountOfParams{UserID: owner, Name: name})
+	if err != nil {
+		return fmt.Errorf("口座の削除に失敗しました: %w", err)
+	}
+	if deleted == 0 {
+		return repository.ErrManagedAccountNotFound
+	}
+	if err := tx.Commit(finishCtx); err != nil {
+		return fmt.Errorf("コミットに失敗しました: %w", err)
 	}
 	return nil
 }

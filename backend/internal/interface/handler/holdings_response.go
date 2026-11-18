@@ -36,6 +36,19 @@ type holdingsResponse struct {
 	// CombinedTotal は、円にまとめた合計。切り替えを出さないとき（ドルの保有がない・レートがない。ドルを円にまとめる合計の要件2）は null。
 	// キーは常にある。
 	CombinedTotal *combinedTotalResponse `json:"combinedTotal"`
+	// ManagedAccounts は、おまかせ運用の口座のカードの値（名前の順）。キーは常にあり、口座がなければ [] （null にしない）。
+	ManagedAccounts []managedAccountResponse `json:"managedAccounts"`
+}
+
+// managedAccountResponse は、おまかせ運用の口座1つ（おまかせ運用のプラン 4.4）。
+// valuation・principal・unrealizedGain・unrealizedGainRate の形は、円の通貨ごとの合計と同じ（円の整数・符号付きの整数・符号付きの小数1桁）。
+type managedAccountResponse struct {
+	Name               string `json:"name"`
+	Valuation          string `json:"valuation"`
+	Principal          string `json:"principal"`
+	UnrealizedGain     string `json:"unrealizedGain"`
+	UnrealizedGainRate string `json:"unrealizedGainRate"`
+	ValuationDate      string `json:"valuationDate"`
 }
 
 // combinedTotalResponse は、円にまとめた合計（ドルを円にまとめる合計のプラン 4.4）。
@@ -115,7 +128,40 @@ func newHoldingsResponse(list dto.HoldingsList) (holdingsResponse, error) {
 	if err != nil {
 		return holdingsResponse{}, err
 	}
-	return holdingsResponse{Holdings: holdings, Totals: totals, CombinedTotal: combined}, nil
+	accounts, err := newManagedAccountResponses(list.ManagedAccounts)
+	if err != nil {
+		return holdingsResponse{}, err
+	}
+	return holdingsResponse{Holdings: holdings, Totals: totals, CombinedTotal: combined, ManagedAccounts: accounts}, nil
+}
+
+// newManagedAccountResponses は、おまかせ運用の口座のカードの値 accounts を API の本文の形にする。0件でも nil ではなく空のスライスを返す。
+// 金額は円の形にする（100の倍数でなければ、黙って切り捨てずにエラー）。
+func newManagedAccountResponses(accounts []dto.ManagedAccount) ([]managedAccountResponse, error) {
+	result := make([]managedAccountResponse, 0, len(accounts))
+	for _, a := range accounts {
+		valuation, err := formatValuation(dto.CurrencyJPY, a.ValuationHundredths)
+		if err != nil {
+			return nil, fmt.Errorf("口座 %q の評価額: %w", a.Name, err)
+		}
+		principal, err := formatValuation(dto.CurrencyJPY, a.PrincipalHundredths)
+		if err != nil {
+			return nil, fmt.Errorf("口座 %q の元本: %w", a.Name, err)
+		}
+		gain, err := formatUnrealizedGain(dto.CurrencyJPY, a.UnrealizedGainHundredths)
+		if err != nil {
+			return nil, fmt.Errorf("口座 %q の含み損益: %w", a.Name, err)
+		}
+		result = append(result, managedAccountResponse{
+			Name:               a.Name,
+			Valuation:          valuation,
+			Principal:          principal,
+			UnrealizedGain:     gain,
+			UnrealizedGainRate: formatGainRate(a.UnrealizedGainRateTenths),
+			ValuationDate:      a.ValuationDate,
+		})
+	}
+	return result, nil
 }
 
 // newCombinedTotalResponse は、円にまとめた合計 c を API の本文の形にする。c が nil なら nil（本文では null）。
