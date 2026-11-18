@@ -77,7 +77,7 @@ func CalculateHoldings(rows []dto.TradeRow, splits []dto.StockSplitRow, rate *dt
 		list.Holdings = append(list.Holdings, h)
 		t := totals[h.Currency]
 		if t == nil {
-			t = &currencyTotal{valuation: new(big.Int), gain: newGainTotal()}
+			t = newCurrencyTotal()
 			totals[h.Currency] = t
 		}
 		if s.valuation == nil {
@@ -142,6 +142,11 @@ type currencyTotal struct {
 	gain             *gainTotal // 価格のある行の含み損益の合計
 	hasPriced        bool       // 価格のある行が1件以上ある
 	excludesUnpriced bool       // 価格のない行が1件以上ある
+}
+
+// newCurrencyTotal は、何も足していない通貨ごとの合計の途中の値を返す。
+func newCurrencyTotal() *currencyTotal {
+	return &currencyTotal{valuation: new(big.Int), gain: newGainTotal()}
 }
 
 // calculatedStock は、1銘柄の計算の結果。

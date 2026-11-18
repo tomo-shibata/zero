@@ -24,7 +24,7 @@ func buildManagedAccounts(accounts []dto.ManagedAccountRow, totals map[dto.Curre
 	}
 	jpy := totals[dto.CurrencyJPY]
 	if jpy == nil {
-		jpy = &currencyTotal{valuation: new(big.Int), gain: newGainTotal()}
+		jpy = newCurrencyTotal()
 		totals[dto.CurrencyJPY] = jpy
 	}
 	for _, a := range accounts {
