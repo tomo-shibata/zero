@@ -129,6 +129,7 @@ const MIXED_BODY = {
     { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '297.50', unrealizedGainRate: '19.8' },
   ],
   combinedTotal: null,
+  managedAccounts: [],
 }
 
 function respondWithHoldings(body: unknown): void {
@@ -231,7 +232,7 @@ test('基準14（要件11）: 合計の欄は、「価格を今すぐ更新」�
 })
 
 test('基準17: 保有が円の銘柄だけの応答のとき、合計の欄に円の部分だけが表示され、ドルの部分は表示されない', async () => {
-  respondWithHoldings({ holdings: [MIXED_BODY.holdings[0]], totals: [MIXED_BODY.totals[0]], combinedTotal: null })
+  respondWithHoldings({ holdings: [MIXED_BODY.holdings[0]], totals: [MIXED_BODY.totals[0]], combinedTotal: null, managedAccounts: [] })
 
   renderHoldingsPage()
 
@@ -241,7 +242,7 @@ test('基準17: 保有が円の銘柄だけの応答のとき、合計の欄に�
 })
 
 test('売買履歴の基準7・カード表示の基準18（要件11）: holdings と totals が空の応答のとき、「保有株式はありません」が表示され、合計の欄・カードは表示されない', async () => {
-  respondWithHoldings({ holdings: [], totals: [], combinedTotal: null })
+  respondWithHoldings({ holdings: [], totals: [], combinedTotal: null, managedAccounts: [] })
 
   renderHoldingsPage()
 
@@ -261,6 +262,7 @@ test('基準3（要件2。Enter から画面が移るまで）: 6758・7203 の�
     ],
     totals: [MIXED_BODY.totals[0]],
     combinedTotal: null,
+    managedAccounts: [],
   })
 
   renderHoldingsPageWithStockRoute()
@@ -275,7 +277,7 @@ test('基準3（要件2。Enter から画面が移るまで）: 6758・7203 の�
 })
 
 test('補助（要件3）: 一覧の画面で、スペースで持ち上げてから Enter を押しても、場所は /holdings のまま（画面は移らない）', async () => {
-  respondWithHoldings({ holdings: [MIXED_BODY.holdings[0]], totals: [MIXED_BODY.totals[0]], combinedTotal: null })
+  respondWithHoldings({ holdings: [MIXED_BODY.holdings[0]], totals: [MIXED_BODY.totals[0]], combinedTotal: null, managedAccounts: [] })
 
   renderHoldingsPageWithStockRoute()
 
@@ -290,7 +292,7 @@ test('補助（要件3）: 一覧の画面で、スペースで持ち上げて�
 })
 
 test('補助（プラン 4.7）: holdings が1件以上で totals が空の応答のとき、カードは表示されるが、合計の欄は表示されない', async () => {
-  respondWithHoldings({ holdings: MIXED_BODY.holdings, totals: [], combinedTotal: null })
+  respondWithHoldings({ holdings: MIXED_BODY.holdings, totals: [], combinedTotal: null, managedAccounts: [] })
 
   renderHoldingsPage()
 

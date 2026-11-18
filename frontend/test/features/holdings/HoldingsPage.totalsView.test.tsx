@@ -59,6 +59,7 @@ const COMBINED_BODY = {
     usdJpyRate: '150.00',
     usdJpyRateDate: '2026-11-14',
   },
+  managedAccounts: [],
 }
 
 /** 基準16: Aの保有が 7203 だけ（円だけ。ドルの保有がないので combinedTotal は null）の応答。 */
@@ -66,6 +67,7 @@ const YEN_ONLY_BODY = {
   holdings: [COMBINED_BODY.holdings[0]],
   totals: [COMBINED_BODY.totals[0]],
   combinedTotal: null,
+  managedAccounts: [],
 }
 
 let queryClient: QueryClient

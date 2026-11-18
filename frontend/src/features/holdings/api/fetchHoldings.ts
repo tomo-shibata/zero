@@ -148,11 +148,35 @@ const combinedTotalSchema = z
     }
   })
 
+/**
+ * おまかせ運用の口座1つ。金額はすべて円なので、評価額・元本は円の整数、含み損益は符号付きの円の整数、率は符号付きの小数1桁、
+ * 基準日は実在する YYYY-MM-DD。口座は常に値を持つので、含み損益と率は null にならない。
+ */
+const managedAccountSchema = z
+  .object({
+    // 空白でない文字を1つ以上。前後の空白は削らず、そのまま受け入れる。
+    // backend の名前の確かめは Go の unicode.IsSpace で、U+FEFF（BOM）を空白と見ない。
+    // JavaScript の \s は U+FEFF を空白と見るので、正規表現に U+FEFF を足して、backend が受け入れる名前は画面も受け入れるようにする。
+    name: z.string().regex(/\S|\uFEFF/),
+    valuation: z.string(),
+    principal: z.string(),
+    unrealizedGain: z.string(),
+    unrealizedGainRate: z.string(),
+    valuationDate: z.iso.date(),
+  })
+  .superRefine((account, context) => {
+    checkAmountFormat(context, VALUATION_PATTERNS, 'JPY', account.valuation, 'valuation')
+    checkAmountFormat(context, VALUATION_PATTERNS, 'JPY', account.principal, 'principal')
+    checkGainFormat(context, 'JPY', account.unrealizedGain, account.unrealizedGainRate)
+  })
+
 const holdingsListSchema = z.object({
   holdings: z.array(z.union([pricedHoldingSchema, unpricedHoldingSchema])),
   totals: z.array(currencyTotalSchema),
   // キーは常にある（切り替えを出さないときは null）。
   combinedTotal: combinedTotalSchema.nullable(),
+  // キーは常にある（口座がなければ空の配列）。
+  managedAccounts: z.array(managedAccountSchema),
 })
 
 /**

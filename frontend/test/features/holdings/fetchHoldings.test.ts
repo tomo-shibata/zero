@@ -20,6 +20,9 @@ import { fetchHoldings } from '../../../src/features/holdings/api/fetchHoldings'
 // ドルを円にまとめる合計（要件 docs/requirements/fx-total.md、プラン docs/plans/fx-total/plan.md 4.4・4.7 の PR②・5.2・5.3）: 応答に combinedTotal
 //   （キーは常にあり、値は null か { valuation, excludesUnpriced, unrealizedGain, unrealizedGainRate, usdJpyRate, usdJpyRateDate }）を足す。
 //   円の整数・符号付きの整数・符号付きの小数1桁・小数2桁・実在する日付に外れたら reject。既存の本文には combinedTotal: null を足した。
+// おまかせ運用（プラン docs/plans/managed-account/plan.md 4.8 の PR③・5.2・5.3）: 応答に managedAccounts（キーは常にあり、口座がなければ空の配列。
+//   口座は { name, valuation, principal, unrealizedGain, unrealizedGainRate, valuationDate }）を足す。円の整数・符号付きの整数（「+」なし）・
+//   符号付きの小数1桁・実在する日付に外れたら reject。既存の本文には managedAccounts: [] を足した。
 // mock は境界の外側（ネットワーク = グローバルの fetch）だけに使い、fetchHoldings の結果（resolve した値か reject か）を確かめる。
 
 /** 一覧の API のパス（プラン 4.4）。 */
@@ -60,7 +63,30 @@ function apiExampleBody() {
     ],
     // ドルを円にまとめる合計のプラン 4.4: キーは常にあり、値は null かオブジェクト（5.3 の PR②）。
     combinedTotal: null as unknown,
+    // おまかせ運用のプラン 4.4・4.8 PR③: キーは常にあり、口座がなければ空の配列。
+    managedAccounts: [] as unknown[],
   }
+}
+
+/** おまかせ運用の口座1つ（プラン 4.8 PR③ の ManagedAccount。要件定義の基準1 の WealthNavi）。 */
+function managedAccountExample(): Record<string, unknown> {
+  return {
+    name: 'WealthNavi',
+    valuation: '4000000',
+    principal: '3000000',
+    unrealizedGain: '1000000',
+    unrealizedGainRate: '33.3',
+    valuationDate: '2026-11-16',
+  }
+}
+
+/** API の例に口座を1つ足し、その口座を1か所だけ変えた本文を作る。 */
+function exampleWithManagedAccount(change: (account: Record<string, unknown>) => void): unknown {
+  const body = apiExampleBody()
+  const account = managedAccountExample()
+  change(account)
+  body.managedAccounts = [account]
+  return body
 }
 
 /** ドルを円にまとめる合計のプラン 4.4 の例（基準1 の値）。 */
@@ -161,7 +187,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
   })
 
   test('補助 FR-22・FR-7（PR4_EC2・PR4_TC02）: 0件の応答（holdings と totals が空の配列）は、同じ形の値で resolve する', async () => {
-    const emptyBody = { holdings: [], totals: [], combinedTotal: null }
+    const emptyBody = { holdings: [], totals: [], combinedTotal: null, managedAccounts: [] }
     stubFetch(() => jsonResponse(emptyBody))
 
     await expect(fetchHoldings()).resolves.toEqual(emptyBody)
@@ -203,6 +229,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
         { currency: 'USD', valuation: '0.00', excludesUnpriced: true, unrealizedGain: null, unrealizedGainRate: null },
       ],
       combinedTotal: null,
+      managedAccounts: [],
     }
     stubFetch(() => jsonResponse(body))
 
@@ -214,6 +241,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
       holdings: [apiExampleBody().holdings[0]],
       totals: [{ currency: 'JPY', valuation: '450000', excludesUnpriced: false, unrealizedGain: '75000', unrealizedGainRate: '20.0' }],
       combinedTotal: null,
+      managedAccounts: [],
     }
     stubFetch(() => jsonResponse(body))
 
@@ -238,6 +266,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
       ],
       totals: [{ currency: 'USD', valuation: '0.01', excludesUnpriced: false, unrealizedGain: '0.00', unrealizedGainRate: '0.0' }],
       combinedTotal: null,
+      managedAccounts: [],
     }
     stubFetch(() => jsonResponse(body))
 
@@ -257,6 +286,7 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
         { currency: 'USD', valuation: '1800.00', excludesUnpriced: false, unrealizedGain: '-0.01', unrealizedGainRate: '0.0' },
       ],
       combinedTotal: null,
+      managedAccounts: [],
     }
     stubFetch(() => jsonResponse(body))
 
@@ -289,6 +319,60 @@ describe('受け入れる応答（売買履歴のプラン 4.3「API」の形）
     await expect(fetchHoldings()).resolves.toEqual(unavailable)
     stubFetch(() => jsonResponse(loss))
     await expect(fetchHoldings()).resolves.toEqual(loss)
+  })
+
+  // おまかせ運用のプラン 5.2 の PR③: managedAccounts が [] と口座1つで通る（API の境界。フロントのルールの5）。
+  test('補助（おまかせ運用 PR③）: managedAccounts が空の配列の応答は、同じ形の値で resolve する', async () => {
+    const body = apiExampleBody()
+    expect(body.managedAccounts).toEqual([])
+    stubFetch(() => jsonResponse(body))
+
+    await expect(fetchHoldings()).resolves.toEqual(body)
+  })
+
+  test('補助（おまかせ運用 PR③）: managedAccounts に口座1つ（基準1 の WealthNavi）の応答は、口座の6つの項目を落とさず同じ形の値で resolve する', async () => {
+    const body = exampleWithManagedAccount(() => {})
+    stubFetch(() => jsonResponse(body))
+
+    await expect(fetchHoldings()).resolves.toEqual(body)
+  })
+
+  // 要件1: 名前は空白以外の文字を1つ以上含む。backend は Go の unicode.IsSpace で見るので U+FEFF（BOM）は空白でなく、
+  // U+FEFF だけの名前も DB に入って返りうる。backend が受け入れる名前は画面も受け入れる（一覧全体が取得失敗にならない）。
+  test('補助（おまかせ運用 PR③・要件1）: 名前が U+FEFF だけの口座（backend は空白と見ない）の応答は、名前をそのままに同じ形の値で resolve する', async () => {
+    const body = exampleWithManagedAccount((account) => {
+      account.name = '\uFEFF'
+    })
+    stubFetch(() => jsonResponse(body))
+
+    const result = await fetchHoldings()
+
+    expect(result).toEqual(body)
+    expect(result.managedAccounts[0].name).toBe('\uFEFF')
+  })
+
+  test('補助（おまかせ運用 PR③）: マイナス・0の含み損益（"-300000"・"-10.0"、"0"・"0.0"）と、holdings が空で口座だけの応答も resolve する', async () => {
+    const loss = exampleWithManagedAccount((account) => {
+      account.valuation = '2700000'
+      account.principal = '3000000'
+      account.unrealizedGain = '-300000'
+      account.unrealizedGainRate = '-10.0'
+    })
+    const even = exampleWithManagedAccount((account) => {
+      account.unrealizedGain = '0'
+      account.unrealizedGainRate = '0.0'
+    })
+    const onlyAccount = {
+      holdings: [],
+      totals: [{ currency: 'JPY', valuation: '4000000', excludesUnpriced: false, unrealizedGain: '1000000', unrealizedGainRate: '33.3' }],
+      combinedTotal: null,
+      managedAccounts: [managedAccountExample()],
+    }
+
+    for (const body of [loss, even, onlyAccount]) {
+      stubFetch(() => jsonResponse(body))
+      await expect(fetchHoldings()).resolves.toEqual(body)
+    }
   })
 })
 
@@ -707,6 +791,92 @@ describe('reject する応答（取得失敗 FR-22。PR4_EC2・PR4_EC3・PR4_TC0
       name: 'combinedTotal の usdJpyRateDate がない（キーごと欠けている）',
       body: exampleWithCombinedTotal((combinedTotal) => {
         delete combinedTotal.usdJpyRateDate
+      }),
+    },
+    // おまかせ運用（プラン 4.8 PR③・5.2）: managedAccounts のキーは常にある。金額は円の文字列（valuation は負でない整数、principal は
+    // 整数、unrealizedGain は符号付きの整数で "+" を付けない）、率は符号付きの小数1桁、valuationDate は実在する YYYY-MM-DD。外れたら reject。
+    {
+      name: 'managedAccounts のキーがない（キーは常にある）',
+      body: exampleWithTop((body) => {
+        delete body.managedAccounts
+      }),
+    },
+    {
+      name: 'managedAccounts が null',
+      body: exampleWithTop((body) => {
+        body.managedAccounts = null
+      }),
+    },
+    {
+      name: 'managedAccounts の valuation が "4000000.5"（小数がある。円は整数）',
+      body: exampleWithManagedAccount((account) => {
+        account.valuation = '4000000.5'
+      }),
+    },
+    {
+      name: 'managedAccounts の valuation が "-1"（負）',
+      body: exampleWithManagedAccount((account) => {
+        account.valuation = '-1'
+      }),
+    },
+    {
+      name: 'managedAccounts の valuation が数の 4000000（文字列でない）',
+      body: exampleWithManagedAccount((account) => {
+        account.valuation = 4000000
+      }),
+    },
+    {
+      name: 'managedAccounts の principal が "3,000,000"（カンマ区切り）',
+      body: exampleWithManagedAccount((account) => {
+        account.principal = '3,000,000'
+      }),
+    },
+    {
+      name: 'managedAccounts の unrealizedGain が "+1000000"（プラスに「+」は付かない）',
+      body: exampleWithManagedAccount((account) => {
+        account.unrealizedGain = '+1000000'
+      }),
+    },
+    {
+      name: 'managedAccounts の unrealizedGain が null（口座は常に値がある）',
+      body: exampleWithManagedAccount((account) => {
+        account.unrealizedGain = null
+      }),
+    },
+    {
+      name: 'managedAccounts の unrealizedGainRate が "33.33"（小数が2桁）',
+      body: exampleWithManagedAccount((account) => {
+        account.unrealizedGainRate = '33.33'
+      }),
+    },
+    {
+      name: 'managedAccounts の valuationDate が "20261116"（YYYY-MM-DD でない）',
+      body: exampleWithManagedAccount((account) => {
+        account.valuationDate = '20261116'
+      }),
+    },
+    {
+      name: 'managedAccounts の valuationDate が "2026-02-30"（実在しない日付）',
+      body: exampleWithManagedAccount((account) => {
+        account.valuationDate = '2026-02-30'
+      }),
+    },
+    {
+      name: 'managedAccounts の name がない（キーごと欠けている）',
+      body: exampleWithManagedAccount((account) => {
+        delete account.name
+      }),
+    },
+    {
+      name: 'managedAccounts の name が ""（空。名前に空白でない文字が要る）',
+      body: exampleWithManagedAccount((account) => {
+        account.name = ''
+      }),
+    },
+    {
+      name: 'managedAccounts の name が "   "（空白だけ）',
+      body: exampleWithManagedAccount((account) => {
+        account.name = '   '
       }),
     },
   ]

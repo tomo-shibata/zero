@@ -68,6 +68,22 @@ export type CombinedTotal = {
   usdJpyRateDate: string
 }
 
+/** おまかせ運用の口座1つのカードの値（おまかせ運用のプラン 4.4）。金額は円の文字列。 */
+export type ManagedAccount = {
+  /** 口座の名前（利用者の中で重複しない。カードの名前、削除の対象）。 */
+  name: string
+  /** 評価額（円の整数。例 "4000000"）。 */
+  valuation: string
+  /** 元本（円の整数。例 "3000000"）。 */
+  principal: string
+  /** 含み損益（円の符号付きの整数。例 "1000000"・"-300000"・"0"）。プラスに「+」は付かない。 */
+  unrealizedGain: string
+  /** 含み損益の率（%。符号付きの小数1桁。例 "33.3"・"-10.0"・"0.0"）。 */
+  unrealizedGainRate: string
+  /** 評価額の基準日。"YYYY-MM-DD"。 */
+  valuationDate: string
+}
+
 /** 保有株式一覧。 */
 export type HoldingsList = {
   /** 銘柄コードの昇順（通貨によらない。要件15）。0件のときは空の配列。 */
@@ -76,6 +92,8 @@ export type HoldingsList = {
   totals: CurrencyTotal[]
   /** 円にまとめた合計。切り替えを出さないとき（ドルの保有がない、レートがない）は null。 */
   combinedTotal: CombinedTotal | null
+  /** おまかせ運用の口座（API の順 = 名前の順）。口座がなければ空の配列。 */
+  managedAccounts: ManagedAccount[]
 }
 
 /**

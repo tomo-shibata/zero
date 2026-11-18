@@ -71,7 +71,7 @@ const LOADED_ORDER = ['6758', '7203', 'AAPL']
 
 /** 並び order の一覧の応答の本文。 */
 function listBody(order: readonly string[]) {
-  return { holdings: order.map((code) => BY_CODE[code]), totals: TOTALS, combinedTotal: null }
+  return { holdings: order.map((code) => BY_CODE[code]), totals: TOTALS, combinedTotal: null, managedAccounts: [] }
 }
 
 function jsonResponse(body: unknown): Response {
