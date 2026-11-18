@@ -25,8 +25,11 @@
   }
 }
 
-/* 並べ替えできるカード（要件17〜22）。 */
-.holding-card-list > li {
+/*
+ * 並べ替えできるカード（要件17〜22）。株式の並びにだけ付く holding-card-list--reorderable の中だけに効かせる。
+ * おまかせ運用の並びは holding-card-list を共用するが、並べ替えられないので、掴めるように見せない（おまかせ運用の要件10）。
+ */
+.holding-card-list--reorderable > li {
   cursor: grab;
   /* タッチで、押し続けるまでは縦のスクロールを妨げない（押し続けてから動かすとドラッグ。要件18）。 */
   touch-action: manipulation;

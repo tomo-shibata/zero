@@ -4,6 +4,8 @@
   padding: 1rem 1.25rem;
   background: var(--color-surface);
   border-radius: var(--radius-lg);
+  /* 通常は見えない枠。ハイコントラスト（forced-colors）では影と背景の差が消えるので、フォーカスを当てないカード（おまかせ運用）でも箱の境目が見えるようにする。 */
+  border: 1px solid transparent;
   box-shadow: var(--shadow-card);
   /* 含み損益の文字は、カードの中でいちばん大きくする（ほかの文字は 1rem 以下。要件3）。 */
   --unrealized-gain-size: 1.5rem;
@@ -62,7 +64,37 @@
   color: var(--color-text-muted);
 }
 
-/* 「⋯」を包む要素。この中で押したマウス・タッチでは、ドラッグを始めない（要件21）。 */
+/*
+ * 「⋯」を包む要素。この中で押したマウス・タッチでは、ドラッグを始めない（要件21）。
+ * flex-shrink: 0 は、おまかせ運用の口座の名前が長くても「⋯」を縮めず、カードの右上の内側に残すため。
+ */
 .holding-card__menu {
   display: inline-flex;
+  flex-shrink: 0;
+}
+
+/*
+ * おまかせ運用のカード（ManagedAccountCard）。見た目は株式のカードと同じで、次の3つだけ足す。
+ */
+
+/* 2行目の「おまかせ運用」。名前ではなく種類なので、補助の文字にする（株式のカードでは銘柄名の場所）。 */
+.holding-card__kind {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/*
+ * 口座の名前。株式の銘柄名と同じく、長い名前を折り返す。flex の中で縮められるように min-width: 0 にする
+ * （「⋯」は上の .holding-card__menu で縮めない）。
+ */
+.holding-card__code--wrap {
+  min-width: 0;
+  word-break: auto-phrase;
+  overflow-wrap: anywhere;
+}
+
+/* 名前の1行目の文字の線に揃える（1行のときはほぼ真ん中揃えと同じで、折り返しても「⋯」は1行目に残る）。株式のカードは中央揃えのまま。 */
+.holding-card__header--managed {
+  align-items: baseline;
 }

@@ -65,6 +65,12 @@ export type SplitSeed = { code: string; splitDate: string; ratio: number }
  */
 export type UsdJpyRateSeed = { date: string; rate: string }
 
+/**
+ * おまかせ運用の記録1件（おまかせ運用のプラン 4.8 PR③。利用者A の記録）。日付は "YYYY-MM-DD"、評価額と損益は円の整数（損益はマイナスあり）。
+ * 口座は名前ごとに、配列で最初に出た順に managed_accounts へ作る（同じ名前の記録は同じ口座の記録になる）。
+ */
+export type ManagedValuationSeed = { name: string; date: string; valuation: number; gain: number }
+
 /** 1つのテストで入れるデータ。銘柄マスタ → 売買履歴 → 終値の順に入れる（FK のため）。 */
 export type HoldingsTestData = {
   stocks?: StockSeed[]
@@ -81,6 +87,11 @@ export type HoldingsTestData = {
   order?: string[]
   /** ドル円のレート（省略できる。ドルを円にまとめる合計のプラン 4.7）。usd_jpy_rates に入れる。日付ごとに1件。 */
   usdJpyRates?: UsdJpyRateSeed[]
+  /**
+   * 利用者A のおまかせ運用の記録（省略できる。おまかせ運用のプラン 4.8 PR③）。口座（managed_accounts）を、名前ごとに配列で最初に出た順に作り、
+   * 記録（managed_account_valuations）を配列の順に入れる。
+   */
+  managedValuations?: ManagedValuationSeed[]
 }
 
 /**
@@ -135,7 +146,10 @@ async function inE2ETransaction(
 export async function resetHoldingsData(): Promise<void> {
   await inE2ETransaction(async (client) => {
     // レートは全利用者で共有なので、前のテストのレートを残さない（ドルを円にまとめる合計のプラン 4.6）。
-    await client.query('TRUNCATE trades, stock_prices, holding_orders, stock_splits, usd_jpy_rates')
+    // おまかせ運用の口座と記録も空にする（おまかせ運用のプラン 5.3）。記録は口座を参照するが、同じ TRUNCATE に並べるので順は問わない。
+    await client.query(
+      'TRUNCATE trades, stock_prices, holding_orders, stock_splits, usd_jpy_rates, managed_account_valuations, managed_accounts',
+    )
     await client.query('DELETE FROM stocks WHERE code <> ALL($1::text[])', [
       SEED_STOCK_CODES,
     ])
@@ -155,6 +169,7 @@ export async function insertHoldingsData(
   const splits = data.splits ?? []
   const order = data.order ?? []
   const usdJpyRates = data.usdJpyRates ?? []
+  const managedValuations = data.managedValuations ?? []
 
   await inE2ETransaction(async (client) => {
     if (stocks.length > 0) {
@@ -235,6 +250,31 @@ export async function insertHoldingsData(
         `INSERT INTO usd_jpy_rates (rate_date, rate)
          SELECT * FROM unnest($1::date[], $2::numeric[])`,
         [usdJpyRates.map((r) => r.date), usdJpyRates.map((r) => r.rate)],
+      )
+    }
+    if (managedValuations.length > 0) {
+      // 口座は名前ごとに、配列で最初に出た順に作る（Set は最初に入れた順を保つ）。記録は口座の後に入れる（FK のため）。
+      const names = [...new Set(managedValuations.map((v) => v.name))]
+      await client.query(
+        `INSERT INTO managed_accounts (user_id, name)
+         SELECT $1::uuid, a.name
+         FROM unnest($2::text[]) WITH ORDINALITY AS a(name, ord)
+         ORDER BY a.ord`,
+        [USER_A_ID, names],
+      )
+      await client.query(
+        `INSERT INTO managed_account_valuations (user_id, name, valuation_date, valuation, gain)
+         SELECT $1::uuid, v.name, v.valuation_date, v.valuation, v.gain
+         FROM unnest($2::text[], $3::date[], $4::bigint[], $5::bigint[])
+              WITH ORDINALITY AS v(name, valuation_date, valuation, gain, ord)
+         ORDER BY v.ord`,
+        [
+          USER_A_ID,
+          managedValuations.map((v) => v.name),
+          managedValuations.map((v) => v.date),
+          managedValuations.map((v) => v.valuation),
+          managedValuations.map((v) => v.gain),
+        ],
       )
     }
   })

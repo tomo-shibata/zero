@@ -24,6 +24,8 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+  /* 空白のない長い名前でも、ダイアログの幅を超えないように途中で折り返す。 */
+  overflow-wrap: anywhere;
 }
 
 /* 失敗の文。エラー用の色がまだないので、既存の文字の色の左の線で目立たせる（色だけに頼らず、forced-colors でも線が見える）。 */

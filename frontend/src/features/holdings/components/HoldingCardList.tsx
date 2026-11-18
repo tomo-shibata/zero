@@ -47,7 +47,7 @@ export function HoldingCardList({ holdings, onDelete, onMove, onOpen }: HoldingC
         {LIST_LABEL}
       </h2>
       {/* aria-label は、名前の付け方が変わっても属性で探すテスト（E2E の基準31）が使えるように、aria-labelledby と同じ文言で残す。 */}
-      <ul role="list" aria-labelledby={titleId} aria-label={LIST_LABEL} className="holding-card-list" {...reorder.listProps}>
+      <ul role="list" aria-labelledby={titleId} aria-label={LIST_LABEL} className="holding-card-list holding-card-list--reorderable" {...reorder.listProps}>
         {reorder.holdings.map((holding) => (
           <HoldingCard
             key={holding.code}
