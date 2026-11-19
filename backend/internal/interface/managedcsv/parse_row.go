@@ -43,7 +43,11 @@ func parseRow(rec csvinput.Record, today string) (model.ManagedValuation, []stri
 
 	var texts []string
 	if err := model.CheckManagedAccountName(f[colName]); err != nil {
-		texts = append(texts, msgName)
+		if errors.Is(err, model.ErrManagedAccountNameControl) {
+			texts = append(texts, msgNameControl)
+		} else {
+			texts = append(texts, msgName)
+		}
 	}
 	date, dateText := parseValuationDate(f[colDate], today)
 	if dateText != "" {

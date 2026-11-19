@@ -12,12 +12,13 @@ import (
 const maxManagedAmount int64 = 999_999_999_999
 
 var (
-	ErrBlankManagedAccountName = errors.New("blank managed account name") // 名前に空白以外の文字がない
-	ErrFutureValuationDate     = errors.New("future valuation date")      // 日付が今日（日本時間）より後
-	ErrValuationNotPositive    = errors.New("valuation not positive")     // 評価額が1未満
-	ErrValuationTooLarge       = errors.New("valuation too large")        // 評価額が1兆以上
-	ErrGainOutOfRange          = errors.New("gain out of range")          // 損益の絶対値が1兆以上
-	ErrPrincipalNotPositive    = errors.New("principal not positive")     // 元本（評価額 − 損益）が1円未満
+	ErrBlankManagedAccountName   = errors.New("blank managed account name")   // 名前に空白以外の文字がない
+	ErrManagedAccountNameControl = errors.New("managed account name control") // 名前に制御文字（改行・タブ・NUL など）がある（要件29）
+	ErrFutureValuationDate       = errors.New("future valuation date")        // 日付が今日（日本時間）より後
+	ErrValuationNotPositive      = errors.New("valuation not positive")       // 評価額が1未満
+	ErrValuationTooLarge         = errors.New("valuation too large")          // 評価額が1兆以上
+	ErrGainOutOfRange            = errors.New("gain out of range")            // 損益の絶対値が1兆以上
+	ErrPrincipalNotPositive      = errors.New("principal not positive")       // 元本（評価額 − 損益）が1円未満
 )
 
 // ManagedValuation は、おまかせ運用の口座の、ある日の記録1件（要件2・要件3）。
@@ -28,11 +29,16 @@ type ManagedValuation struct {
 	Gain          int64  // 損益（円。マイナスあり）
 }
 
-// CheckManagedAccountName は、名前に空白以外の文字が1つ以上あれば nil、なければ ErrBlankManagedAccountName を返す（要件1）。
-// 空白は、全角の空白・タブ・改行も含む（unicode.IsSpace。CheckStockName と同じ）。
+// CheckManagedAccountName は、名前に空白以外の文字が1つ以上あり、制御文字がなければ nil を返す（要件1・要件29）。
+// 空白以外の文字がなければ ErrBlankManagedAccountName、あれば次に制御文字（unicode.IsControl。
+// U+0000〜U+001F と U+007F〜U+009F）を調べ、含んでいれば ErrManagedAccountNameControl を返す。
+// 空白は、全角の空白・タブ・改行も含む（unicode.IsSpace。CheckStockName と同じ）。空白が先なので、タブだけの名前は ErrBlankManagedAccountName になる。
 func CheckManagedAccountName(name string) error {
 	if strings.TrimFunc(name, unicode.IsSpace) == "" {
 		return ErrBlankManagedAccountName
+	}
+	if strings.ContainsFunc(name, unicode.IsControl) {
+		return ErrManagedAccountNameControl
 	}
 	return nil
 }

@@ -39,6 +39,8 @@ const (
 	managedValuationZeroMsg = "評価額は1以上にしてください"
 	managedDateMessage      = "日付は YYYY-MM-DD か YYYY/M/D の実在する日付にしてください"
 	managedGainMessage      = "損益は半角数字だけの整数で書いてください（マイナスは先頭に -）"
+	managedNameBlankMsg     = "名前を入れてください"
+	managedNameControlMsg   = "名前に改行やタブなどの制御文字は使えません"
 
 	// Shift_JIS で書いた CSV（名前に漢字を含む）。見出し「名前,日付,評価額,損益」と、1行「ロボアド,2026-01-10,500000,1000」の実際の Shift_JIS のバイト列。
 	managedShiftJISHeader = "\x96\xbc\x91\x4f\x2c\x93\xfa\x95\x74\x2c\x95\x5d\x89\xbf\x8a\x7a\x2c\x91\xb9\x89\x76\x0d\x0a"
@@ -266,23 +268,32 @@ func Test要件31_ファイルの段階の誤りが重なると表の上の誤�
 	}
 }
 
-// 要件26: 名前に NUL（`Wealth\x00Navi`）を含む正しい CSV は、DB が受け付けないので、終了コード1・標準エラーの先頭が
-// 「取り込めませんでした。何も変えていません。」で、何も変わらない。誤りの理由の文言は確かめない（DB のエラーの文のため）。
-func Test要件26_名前にNULを含むCSVは取り込めず何も変えない(t *testing.T) {
+// 基準32（要件29・要件31）: Aが WealthNavi（記録1件）を持つ。CSV の3行目は名前に NUL（`Wealth` + U+0000 + `Navi`）、4〜5行目はダブルクォートで囲んで
+// 名前の途中で改行した1件、6行目は名前にタブ、7行目は名前がタブだけ、ほかの行（2行目）は正しい
+// → 標準エラーは「取り込めませんでした。何も変えていません。」「3行目: …制御文字は使えません」「4行目: 同」「6行目: 同」「7行目: 名前を入れてください」がこの順、
+// 標準出力は空、終了コード1。Aの記録は1件のまま（口座の2つの表と5つの表は変わらない）。
+func Test基準32_名前に制御文字を含む行は誤りにして何も変えない(t *testing.T) {
 	t.Parallel()
 	pool := givenManagedPool(t)
 	before := snapshotManagedAndFive(t, pool)
 
-	out := runManagedImportCSV(t, pool, seedUserA, managedCSV("Wealth\x00Navi,2026-11-16,4000000,1000000"))
+	out := runManagedImportCSV(t, pool, seedUserA, managedCSV(
+		"WealthNavi,2026-11-16,4000000,1000000",       // 2行目: 正しい
+		"Wealth\x00Navi,2026-11-16,4000000,1000000",   // 3行目: 名前に NUL
+		"\"Wealth\nNavi\",2026-11-16,4000000,1000000", // 4〜5行目: 名前の途中で改行（記録が始まる行は4行目）
+		"Wealth\tNavi,2026-11-16,4000000,1000000",     // 6行目: 名前にタブ
+		"\t,2026-11-16,4000000,1000000",               // 7行目: 名前がタブだけ
+	))
 
-	if out.code != 1 {
-		t.Errorf("終了コード: got %d, want 1\nstdout: %q\nstderr: %q", out.code, out.stdout, out.stderr)
-	}
-	if len(out.stderr) == 0 || out.stderr[0] != importFailedHeadline {
-		t.Errorf("標準エラーの先頭: got %q, want %q", out.stderr, importFailedHeadline)
-	}
-	if len(out.stdout) != 0 {
-		t.Errorf("標準出力の行: got %q, want なし", out.stdout)
+	assertImportFailed(t, out,
+		"3行目: "+managedNameControlMsg,
+		"4行目: "+managedNameControlMsg,
+		"6行目: "+managedNameControlMsg,
+		"7行目: "+managedNameBlankMsg,
+	)
+	wantA := []storedManagedValuation{{"WealthNavi", "2026-11-15", 4_000_000, 1_000_000}}
+	if got := readManagedValuations(t, pool, seedUserA); !slices.Equal(got, wantA) {
+		t.Errorf("Aの記録:\n got %+v\nwant %+v（1件のまま）", got, wantA)
 	}
 	assertManagedAndFiveUnchanged(t, pool, before)
 }

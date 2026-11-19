@@ -27,6 +27,7 @@ const (
 	// 要件定義の「CSV の誤りの文言」の表（n行目: は at で付ける）。「元本（評価額 − 損益）」の「−」は U+2212（要件定義と同じ）。
 	msgColumns          = "列の数を4にしてください"
 	msgName             = "名前を入れてください"
+	msgNameControl      = "名前に改行やタブなどの制御文字は使えません"
 	msgDateFormat       = "日付は YYYY-MM-DD か YYYY/M/D の実在する日付にしてください"
 	msgDateFuture       = "未来の日付は取り込めません"
 	msgValuationFormat  = "評価額は半角数字だけの整数で書いてください"
@@ -649,21 +650,48 @@ func Test要件27_Parseはダブルクォートの誤りを見出しの誤りよ
 	assertFileProblem(t, content, at(3, msgQuoteTailMessage))
 }
 
-// 要件27: 名前が複数行にまたがる（`"Wealth` と改行と `Navi"`）行は、その行が始まる行（2行目）の行として読め、後ろの行番号はファイルの行番号のまま。
+// 要件27・要件29: 名前が複数行にまたがる（`"Wealth` と改行と `Navi"`）記録は、改行が制御文字なので誤りになり、行番号はその記録が始まる行（2行目）。
+// 後ろの行（4行目）の誤りの行番号は、ファイルの行番号のまま（2つの誤りだけ。2〜3行目の記録は1つの行として数える）。
 func Test要件27_Parseは複数行にまたがる行の後の行番号をファイルの行番号にする(t *testing.T) {
 	t.Parallel()
 	content := csvOf(
 		header,
 		`"Wealth`,
 		`Navi",2026-11-16,4000000,1000000`,
-		"Alpha,2026-11-16,500000,0",
+		"Alpha,2026-11-16,0,0",
 	)
-	parsed := mustParse(t, content)
-	var lines []int
-	for _, r := range parsed.Rows {
-		lines = append(lines, r.Line)
+	assertRowProblems(t, content, []managedcsv.Problem{
+		at(2, msgNameControl),
+		at(4, msgValuationZero),
+	})
+}
+
+// 要件29・要件31: 名前の列に制御文字（タブ・NUL）がある行は「名前に改行やタブなどの制御文字は使えません」。
+// 同じ行の日付の誤りより前に出る（同じ行では表の上の順）。
+func Test要件29_Parseは名前に制御文字がある行を制御文字の誤りにする(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		row  fields
+		want []managedcsv.Problem
+	}{
+		{"名前にタブ", baseRow.with(colName, "a\tb"), []managedcsv.Problem{at(2, msgNameControl)}},
+		{"名前の後ろに NUL", baseRow.with(colName, "a\x00"), []managedcsv.Problem{at(2, msgNameControl)}},
+		{"名前に制御文字があり日付も実在しない", baseRow.with(colName, "a\tb").with(colDate, "2026-02-30"),
+			[]managedcsv.Problem{at(2, msgNameControl), at(2, msgDateFormat)}},
+		{"名前に制御文字があり日付も未来", baseRow.with(colName, "a\x00").with(colDate, "2026-11-17"),
+			[]managedcsv.Problem{at(2, msgNameControl), at(2, msgDateFuture)}},
 	}
-	if !slices.Equal(lines, []int{2, 4}) {
-		t.Errorf("Parse の行の Line: got %v, want [2 4]", lines)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assertRowProblems(t, withHeader(tc.row), tc.want)
+		})
 	}
+}
+
+// 要件29・「CSV の誤りの文言」: 名前がタブだけの行（空白以外の文字がない）は、制御文字の誤りは確かめず「名前を入れてください」だけ。
+func Test要件29_Parseは名前がタブだけの行を名前の誤りだけにする(t *testing.T) {
+	t.Parallel()
+	assertRowProblems(t, withHeader(baseRow.with(colName, "\t")), []managedcsv.Problem{at(2, msgName)})
 }
