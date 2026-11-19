@@ -1,0 +1,83 @@
+.notifications-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 2rem;
+}
+
+/*
+ * 戻るリンク。幅を文字に合わせる（フォーカスの枠が、画面の幅いっぱいの箱にならないように）。
+ * 上下に余白を足して、押せる範囲を広げる（タッチで押しやすいように。下線は既定のまま）。
+ */
+.notifications-page__back {
+  align-self: flex-start;
+  display: inline-block;
+  padding-block: 0.25rem;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/*
+ * 読み込み中は、戻るリンクの下の残りの高さの中央にアイコンを置く（銘柄ごとの売買履歴の読み込み中と同じ）。
+ * dvh に対応していないブラウザは、先に書いた 100vh を使う。
+ */
+.notifications-page--loading {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.notifications-page__loading {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+}
+
+/* 見出しの行（3つの画面で同じ）。右に部品を置くときは、右の箱に margin-inline-start: auto を付けると、折り返しても右端に寄る。 */
+.notifications-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.notifications-page__title {
+  min-width: 0;
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+/* 通知の並び。1列で、カードの間を空ける。 */
+.notifications-page__list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 0件・取得失敗のメッセージ。保有株式一覧の 0件のメッセージと同じカードの見た目にする。 */
+.notifications-page__message {
+  margin: 0;
+  padding: 1.5rem 1.25rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.notifications-page__empty-title {
+  margin: 0;
+}
+
+.notifications-page__empty-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+@media (forced-colors: active) {
+  .notifications-page__message {
+    border: 1px solid CanvasText;
+  }
+}

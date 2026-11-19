@@ -65,6 +65,46 @@ export type SplitSeed = { code: string; splitDate: string; ratio: number }
  */
 export type UsdJpyRateSeed = { date: string; rate: string }
 
+/**
+ * 価格の変動の通知の条件1件（価格の変動の通知のプラン 4.8 の PR②）。alert_conditions に入れる。
+ * userId の既定は利用者A、createdAt の既定は '2026-11-01T00:00:00+09:00'（足した日を 2026-11-01 の日本時間の0時にする）。
+ * kind・scope・direction は 4.2 の値（"cost"・"all"・"down" など）、stockCode は全銘柄なら省く（''）、threshold は 20（%）・100000（円）・150.25（ドル）のような値そのまま。
+ */
+export type AlertConditionSeed = {
+  userId?: string
+  kind: string
+  scope: 'all' | 'stock'
+  stockCode?: string
+  direction: string
+  threshold: string
+  createdAt?: string
+}
+
+/**
+ * 価格の変動の通知1件（判定を通さず直接入れる。要件定義の「通知（直接）」）。notifications に入れる。
+ * userId の既定は利用者A。conditionId の既定は 0（条件は消えていてもよい。notifications.condition_id は外部キーにしない）。
+ * 一意制約（condition_id, stock_code, trading_date）があるので、同じ銘柄・同じ取引日を2件以上入れるときは conditionId を変える。
+ * conditionStockCode は全銘柄の条件なら省く（''）。threshold・closePrice は文字列の値（例 "20"・"1990"・"191.24"）。details は 4.2 の jsonb（例 { rateTenths: -204, basePriceHundredths: 250000 }）。
+ * seen は見たかどうか。配列の順が id の順（古い順）になる。
+ */
+export type NotificationSeed = {
+  userId?: string
+  conditionId?: number
+  stockCode: string
+  tradingDate: string
+  kind: string
+  scope: 'all' | 'stock'
+  conditionStockCode?: string
+  direction: string
+  threshold: string
+  closePrice: string
+  details: Record<string, unknown>
+  seen: boolean
+}
+
+/** 条件の足した日の既定（日本時間の 2026-11-01 の0時）。 */
+const DEFAULT_ALERT_CONDITION_CREATED_AT = '2026-11-01T00:00:00+09:00'
+
 /** 1つのテストで入れるデータ。銘柄マスタ → 売買履歴 → 終値の順に入れる（FK のため）。 */
 export type HoldingsTestData = {
   stocks?: StockSeed[]
@@ -81,6 +121,10 @@ export type HoldingsTestData = {
   order?: string[]
   /** ドル円のレート（省略できる。ドルを円にまとめる合計のプラン 4.7）。usd_jpy_rates に入れる。日付ごとに1件。 */
   usdJpyRates?: UsdJpyRateSeed[]
+  /** 価格の変動の通知の条件（省略できる。価格の変動の通知のプラン 4.8 の PR②）。alert_conditions に入れる。 */
+  alertConditions?: AlertConditionSeed[]
+  /** 価格の変動の通知（省略できる。同じ PR②）。notifications に、配列の順（古い順）で入れる。 */
+  notifications?: NotificationSeed[]
 }
 
 /**
@@ -158,6 +202,8 @@ export async function insertHoldingsData(
   const splits = data.splits ?? []
   const order = data.order ?? []
   const usdJpyRates = data.usdJpyRates ?? []
+  const alertConditions = data.alertConditions ?? []
+  const notifications = data.notifications ?? []
 
   await inE2ETransaction(async (client) => {
     if (stocks.length > 0) {
@@ -238,6 +284,53 @@ export async function insertHoldingsData(
         `INSERT INTO usd_jpy_rates (rate_date, rate)
          SELECT * FROM unnest($1::date[], $2::numeric[])`,
         [usdJpyRates.map((r) => r.date), usdJpyRates.map((r) => r.rate)],
+      )
+    }
+    if (alertConditions.length > 0) {
+      // 配列の順が id の順（足した順）になるよう、unnest の WITH ORDINALITY の順で入れる。
+      await client.query(
+        `INSERT INTO alert_conditions (user_id, kind, scope, stock_code, direction, threshold, created_at)
+         SELECT c.user_id::uuid, c.kind, c.scope, c.stock_code, c.direction, c.threshold::numeric, c.created_at::timestamptz
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[])
+              WITH ORDINALITY AS c(user_id, kind, scope, stock_code, direction, threshold, created_at, ord)
+         ORDER BY c.ord`,
+        [
+          alertConditions.map((c) => c.userId ?? USER_A_ID),
+          alertConditions.map((c) => c.kind),
+          alertConditions.map((c) => c.scope),
+          alertConditions.map((c) => c.stockCode ?? ''),
+          alertConditions.map((c) => c.direction),
+          alertConditions.map((c) => c.threshold),
+          alertConditions.map((c) => c.createdAt ?? DEFAULT_ALERT_CONDITION_CREATED_AT),
+        ],
+      )
+    }
+    if (notifications.length > 0) {
+      // 配列の順が id の順になるよう、unnest の WITH ORDINALITY の順で入れる。details は JSON の文字列にして jsonb に変える。
+      await client.query(
+        `INSERT INTO notifications (user_id, condition_id, kind, scope, condition_stock_code, direction, threshold,
+                                    stock_code, trading_date, close_price, details, seen)
+         SELECT n.user_id::uuid, n.condition_id, n.kind, n.scope, n.condition_stock_code, n.direction, n.threshold::numeric,
+                n.stock_code, n.trading_date::date, n.close_price::numeric, n.details::jsonb, n.seen
+         FROM unnest($1::text[], $2::bigint[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
+                     $8::text[], $9::text[], $10::text[], $11::text[], $12::boolean[])
+              WITH ORDINALITY AS n(user_id, condition_id, kind, scope, condition_stock_code, direction, threshold,
+                                   stock_code, trading_date, close_price, details, seen, ord)
+         ORDER BY n.ord`,
+        [
+          notifications.map((n) => n.userId ?? USER_A_ID),
+          notifications.map((n) => n.conditionId ?? 0),
+          notifications.map((n) => n.kind),
+          notifications.map((n) => n.scope),
+          notifications.map((n) => n.conditionStockCode ?? ''),
+          notifications.map((n) => n.direction),
+          notifications.map((n) => n.threshold),
+          notifications.map((n) => n.stockCode),
+          notifications.map((n) => n.tradingDate),
+          notifications.map((n) => n.closePrice),
+          notifications.map((n) => JSON.stringify(n.details)),
+          notifications.map((n) => n.seen),
+        ],
       )
     }
   })

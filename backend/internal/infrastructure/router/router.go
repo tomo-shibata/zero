@@ -27,11 +27,14 @@ type Deps struct {
 	StockHistoryHandler *handler.StockHistoryHandler
 	// ManagedAccountDeleteHandler は、DELETE /api/managed-accounts?name=…（おまかせ運用の口座の削除）を受け持つ。nil なら /api/managed-accounts を登録しない。
 	ManagedAccountDeleteHandler *handler.ManagedAccountDeleteHandler
+	// NotificationsHandler は、通知の3つの API（GET /api/notifications、GET /api/notifications/unseen-count、POST /api/notifications/seen）を受け持つ。
+	// nil なら /api/notifications 以下を登録しない。
+	NotificationsHandler *handler.NotificationsHandler
 	// DevUserID は、ログイン中の利用者として扱う開発用利用者（認証を作るまでの代わり。プラン 6章の判断5）。
 	DevUserID uuid.UUID
 	// AllowedHosts は、/api/ 以下で受け付ける Host ヘッダー（"127.0.0.1:<PORT>" など。プラン 6章の判断12）。
 	// 空なら、/api/ 以下のルートはどの Host でも 403 になる（設定を忘れても開いたままにしない）。
-	// /api/ 以下にルートが1つもない（QueryHandler・PriceRefreshHandler・HoldingDeleteHandler・HoldingOrderHandler・StockHistoryHandler・ManagedAccountDeleteHandler が nil）ときは、chi がミドルウェアを通さずに 404 を返す。
+	// /api/ 以下にルートが1つもない（QueryHandler・PriceRefreshHandler・HoldingDeleteHandler・HoldingOrderHandler・StockHistoryHandler・ManagedAccountDeleteHandler・NotificationsHandler が nil）ときは、chi がミドルウェアを通さずに 404 を返す。
 	AllowedHosts []string
 }
 
@@ -67,6 +70,11 @@ func New(d Deps) http.Handler {
 		}
 		if d.ManagedAccountDeleteHandler != nil {
 			r.Method(http.MethodDelete, "/managed-accounts", d.ManagedAccountDeleteHandler)
+		}
+		if d.NotificationsHandler != nil {
+			r.Get("/notifications", d.NotificationsHandler.List)
+			r.Get("/notifications/unseen-count", d.NotificationsHandler.UnseenCount)
+			r.Post("/notifications/seen", d.NotificationsHandler.MarkSeen)
 		}
 	})
 	return r

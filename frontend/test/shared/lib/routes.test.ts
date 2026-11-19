@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { HOLDINGS_PATH, stockHistoryPath } from '../../../src/shared/lib/routes'
+import { ALERTS_PATH, HOLDINGS_PATH, NOTIFICATIONS_PATH, stockHistoryPath } from '../../../src/shared/lib/routes'
 
 // 仕様: 要件 docs/requirements/stock-history.md の要件1・要件4（カードを押すと /holdings/<銘柄コード> に移る。「← 保有株式一覧」は /holdings に移る）。
 //   銘柄コードに「.」「-」が使える（売買履歴の要件24）。
@@ -11,6 +11,16 @@ import { HOLDINGS_PATH, stockHistoryPath } from '../../../src/shared/lib/routes'
 describe('shared/lib/routes（プラン 4.8）', () => {
   test('補助 要件4: HOLDINGS_PATH は /holdings', () => {
     expect(HOLDINGS_PATH).toBe('/holdings')
+  })
+
+  // 価格の変動の通知の要件 docs/requirements/price-alerts.md の要件28（ベルのリンクは /notifications に移る）・要件29（「条件を決める」のリンクは /alerts に移る）。
+  // プラン docs/plans/price-alerts/plan.md 4.8 の PR②: shared/lib/routes.ts に NOTIFICATIONS_PATH = '/notifications'・ALERTS_PATH = '/alerts'。
+  test('要件28: NOTIFICATIONS_PATH は /notifications', () => {
+    expect(NOTIFICATIONS_PATH).toBe('/notifications')
+  })
+
+  test('要件29: ALERTS_PATH は /alerts', () => {
+    expect(ALERTS_PATH).toBe('/alerts')
   })
 
   test('補助 要件1: stockHistoryPath("7203") は /holdings/7203', () => {

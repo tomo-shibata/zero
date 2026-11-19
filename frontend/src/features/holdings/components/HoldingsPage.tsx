@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Holding, HoldingsList } from '../../../entities/holding/model'
 import { stockHistoryPath } from '../../../shared/lib/routes'
@@ -19,13 +19,21 @@ const FETCH_ERROR_MESSAGE = '保有株式の取得に失敗しました'
 const EMPTY_MESSAGE = '保有株式はありません'
 const SAVE_FAILED_MESSAGE = '並びの保存に失敗しました'
 
+type HoldingsPageProps = {
+  /**
+   * 見出しの行の右端に出す部品（価格の変動の通知の要件24。app 層がベルのリンクを渡す。features/holdings は features/notifications を import しない）。
+   * 見出しを出すときは、保有が0件・取得失敗のときも出す。読み込み中は見出しごと出さない。
+   */
+  headerActions?: ReactNode
+}
+
 /**
  * 保有株式一覧の画面（/holdings）。取得の状態（useHoldings）に応じて、表示するコンポーネントを選ぶコンテナ。
  * QueryClientProvider と Router は持たない（app 層で包む）。カードを押すと、その銘柄の売買履歴の画面（/holdings/<銘柄コード>）へ移る。
  *
  * 状態は「読み込み中 → 取得失敗 → 成功（0件／1件以上）」の順に判定する（プラン 4.4「画面の状態ごとの表示」）。
  */
-export function HoldingsPage() {
+export function HoldingsPage({ headerActions }: HoldingsPageProps) {
   const holdingsQuery = useHoldings()
   const navigate = useNavigate()
   // 取得失敗のダイアログを開いているか（クライアント状態）。閉じた後は見出しだけを残す（要件 FR-22）。
@@ -82,9 +90,12 @@ export function HoldingsPage() {
 
   return (
     <main className="holdings-page">
-      <h1 ref={titleRef} tabIndex={-1} className="holdings-page__title">
-        {PAGE_TITLE}
-      </h1>
+      <div className="holdings-page__header">
+        <h1 ref={titleRef} tabIndex={-1} className="holdings-page__title">
+          {PAGE_TITLE}
+        </h1>
+        {headerActions !== undefined && <div className="holdings-page__actions">{headerActions}</div>}
+      </div>
       {holdingsQuery.isError ? (
         isErrorDialogOpen && (
           <AlertDialog message={FETCH_ERROR_MESSAGE} onClose={handleErrorDialogClose} />

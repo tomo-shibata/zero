@@ -1,0 +1,45 @@
+/*
+ * ベルのリンク（価格の変動の通知のプラン 4.6「ベルと通知の1件」）。
+ * 押せる大きさは 2.75rem（SVG の大きさにしない）。枠があるので、ハイコントラストでも押せる範囲の輪郭が出る。
+ * 訪問済みでも色を変えない。フォーカスは共通の :focus-visible のまま（outline を消さない）。
+ */
+.notification-bell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  text-decoration: none;
+}
+
+.notification-bell:visited {
+  color: var(--color-text);
+}
+
+.notification-bell__icon {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+/* 数のバッジ。「99+」でも、幅が文字に合わせて伸びる。 */
+.notification-bell__badge {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.5rem;
+  display: grid;
+  place-items: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.375rem;
+  border: 2px solid var(--color-bg);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--color-badge);
+}
