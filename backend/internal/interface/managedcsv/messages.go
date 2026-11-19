@@ -14,6 +14,7 @@ const (
 	// 各行の段階。
 	msgColumns         = "列の数を4にしてください"
 	msgName            = "名前を入れてください"
+	msgNameControl     = "名前に改行やタブなどの制御文字は使えません"
 	msgDateFormat      = "日付は YYYY-MM-DD か YYYY/M/D の実在する日付にしてください"
 	msgDateFuture      = "未来の日付は取り込めません"
 	msgValuationFormat = "評価額は半角数字だけの整数で書いてください"

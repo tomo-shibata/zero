@@ -125,6 +125,43 @@ func Test要件1_CheckManagedAccountNameは空白以外の文字が1つ以上あ
 	}
 }
 
+// 要件29: 名前に制御文字（U+0000〜U+001F と U+007F〜U+009F）があれば ErrManagedAccountNameControl。
+// ただし空白以外の文字がないときは、先に ErrBlankManagedAccountName（\t・U+0085 は空白）。NUL は空白ではないので制御文字の誤り。
+// 改行しない空白（U+00A0）・幅のない空白（U+200B）・範囲のすぐ下の `~`（U+007E）は制御文字ではないので通る（要件1 の補足）。
+func Test要件29_CheckManagedAccountNameは制御文字を含む名前を拒む(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want error
+	}{
+		{"NUL を含む", "Wealth\x00Navi", model.ErrManagedAccountNameControl},
+		{"改行 LF を含む", "a\nb", model.ErrManagedAccountNameControl},
+		{"改行 CR を含む", "a\rb", model.ErrManagedAccountNameControl},
+		{"タブを含む", "a\tb", model.ErrManagedAccountNameControl},
+		{"範囲の上端 U+001F を含む", "a\x1f", model.ErrManagedAccountNameControl},
+		{"DEL U+007F を含む", "a\x7f", model.ErrManagedAccountNameControl},
+		{"U+0085 を含む", "a\u0085", model.ErrManagedAccountNameControl},
+		{"範囲の上端 U+009F を含む", "a\u009f", model.ErrManagedAccountNameControl},
+		{"NUL だけは空白ではないので制御文字の誤り", "\x00", model.ErrManagedAccountNameControl},
+		{"タブだけは空白が先", "\t", model.ErrBlankManagedAccountName},
+		{"U+0085 だけは空白が先", "\u0085", model.ErrBlankManagedAccountName},
+		{"改行しない空白を挟んだ名前は通る", "Wealth\u00A0Navi", nil},
+		{"幅のない空白を挟んだ名前は通る", "Wealth\u200BNavi", nil},
+		{"後ろに改行しない空白がある名前は通る", "a\u00A0", nil},
+		{"範囲のすぐ下 U+007E を含む名前は通る", "a~", nil},
+		{"幅のない空白だけの名前は通る", "\u200B", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := model.CheckManagedAccountName(tc.in); !errors.Is(got, tc.want) {
+				t.Errorf("CheckManagedAccountName(%q): got %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // 要件3: 日付は取り込んだ日（日本時間）以前。今日 2026-11-16 と昨日は通り、翌日 2026-11-17 は ErrFutureValuationDate。
 func Test要件3_CheckValuationDateは今日以前なら通し後なら未来の日付の誤りを返す(t *testing.T) {
 	t.Parallel()
@@ -189,6 +226,7 @@ func Test要件29_NewManagedValuationは列の順で最初の誤りを返す(t *
 		want      error
 	}{
 		{"名前が空白で評価額も0なら名前の誤り", "  ", "2026-11-16", 0, 0, model.ErrBlankManagedAccountName},
+		{"名前に制御文字があり日付も未来なら名前の誤り", "a\tb", "2026-11-17", 1000, 0, model.ErrManagedAccountNameControl},
 		{"日付が未来で評価額も0なら日付の誤り", "WealthNavi", "2026-11-17", 0, 0, model.ErrFutureValuationDate},
 		{"評価額が0で損益が1兆なら評価額の誤り", "WealthNavi", "2026-11-16", 0, 1_000_000_000_000, model.ErrValuationNotPositive},
 		{"評価額が1兆以上なら評価額の誤り", "WealthNavi", "2026-11-16", 1_000_000_000_000, 0, model.ErrValuationTooLarge},
