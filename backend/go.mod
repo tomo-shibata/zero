@@ -2,7 +2,7 @@ module github.com/tomo-shibata/zero/backend
 
 go 1.27
 
-toolchain go1.27.2
+toolchain go1.27.4
 
 require (
 	github.com/go-chi/chi/v5 v5.3.2
