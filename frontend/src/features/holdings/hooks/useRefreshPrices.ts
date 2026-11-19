@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { UNSEEN_NOTIFICATION_COUNT_QUERY_KEY } from '../../../shared/api/queryKeys'
 import { refreshPrices } from '../api/refreshPrices'
 import { HOLDINGS_QUERY_KEY } from './useHoldings'
 
@@ -10,6 +11,8 @@ import { HOLDINGS_QUERY_KEY } from './useHoldings'
  *   値段の更新のプラン 6章の判断18）。
  * - 成功したら、一覧を取り直す。取り直している間は今の一覧を出したまま。取り直しが終わるまで更新中のままにして、
  *   結果の文言を、取り直した一覧と同時に出す（要件18「一覧と合計評価額を取得し直して表示し、…結果を表示する」）。
+ * - 終わったら（結果によらず）、見ていない通知の数を取り直す（価格の変動の通知の要件27。更新で判定され、通知ができたかもしれない）。
+ *   取り直しは待たない（ベルのバッジの更新で、更新中の表示を延ばさない）。
  */
 export function useRefreshPrices() {
   const queryClient = useQueryClient()
@@ -18,5 +21,8 @@ export function useRefreshPrices() {
     retry: false,
     networkMode: 'always',
     onSuccess: () => queryClient.invalidateQueries({ queryKey: HOLDINGS_QUERY_KEY }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: UNSEEN_NOTIFICATION_COUNT_QUERY_KEY })
+    },
   })
 }

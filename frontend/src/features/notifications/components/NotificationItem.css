@@ -1,0 +1,124 @@
+.notification-item {
+  min-width: 0;
+}
+
+/*
+ * リンクがカード。4行を全部包み、フォーカスの枠がカードの形になる。
+ * 下線付きのリンクの色にならないよう、色は親から引き継いで下線を消す。
+ */
+.notification-item__link {
+  display: grid;
+  gap: 0.375rem;
+  padding: 1rem 1.25rem;
+  color: inherit;
+  text-decoration: none;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.notification-item__link:visited {
+  color: inherit;
+}
+
+/* 新着の通知だけ、左に線を付ける。線の幅の分だけ左の余白を減らして、文字の位置を新着でない通知とそろえる。 */
+.notification-item__link--new {
+  padding-inline-start: 1rem;
+  border-inline-start: 0.25rem solid var(--color-primary);
+}
+
+.notification-item__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.notification-item__stock {
+  min-width: 0;
+  font-weight: 600;
+  /* 対応するブラウザでは、日本語を文節で折り返す。入りきらない長い文節だけは途中で切る（HoldingCard の銘柄名と同じ）。 */
+  word-break: auto-phrase;
+  overflow-wrap: anywhere;
+}
+
+/* 銘柄名は細くして、太字の銘柄コードと見分ける。 */
+.notification-item__stock-name {
+  font-weight: 400;
+}
+
+.notification-item__meta {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.notification-item__new-mark {
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-on-accent);
+  background: var(--color-primary);
+}
+
+/* 何が起きたか。カードの中でいちばん大きい太字。 */
+.notification-item__headline {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.notification-item__headline [data-tone='gain'] {
+  color: var(--color-gain);
+}
+
+.notification-item__headline [data-tone='loss'] {
+  color: var(--color-loss);
+}
+
+.notification-item__detail {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.notification-item__condition {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  word-break: auto-phrase;
+  overflow-wrap: anywhere;
+}
+
+/* マウスで指す環境だけ、カードの影を濃くする（タッチでは hover が残るので付けない）。 */
+@media (hover: hover) {
+  .notification-item__link:hover {
+    box-shadow: 0 10px 30px rgba(17, 24, 39, 0.16);
+  }
+}
+
+/*
+ * ハイコントラスト（forced-colors）では、影と背景色が描かれない。カードに枠を付け、新着の通知だけ左の枠を Highlight にする
+ * （新着でない通知に透明の左の枠を置かない。透明の枠も色付きで描かれるため）。「新着」の丸は Highlight で塗る。
+ */
+@media (forced-colors: active) {
+  .notification-item__link {
+    border: 1px solid CanvasText;
+  }
+
+  .notification-item__link--new {
+    border-inline-start: 0.25rem solid Highlight;
+  }
+
+  .notification-item__new-mark {
+    color: HighlightText;
+    background: Highlight;
+  }
+}

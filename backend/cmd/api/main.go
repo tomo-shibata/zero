@@ -132,9 +132,20 @@ func newDeps(pool *pgxpool.Pool, cfg config.API) router.Deps {
 		ManagedAccountDeleteHandler: handler.NewManagedAccountDeleteHandler(
 			command.NewDeleteManagedAccount(write.NewManagedAccountRepository(pool)),
 		),
-		DevUserID:    cfg.DevUserID,
-		AllowedHosts: allowedHosts(cfg.Port),
+		NotificationsHandler: newNotificationsHandler(pool),
+		DevUserID:            cfg.DevUserID,
+		AllowedHosts:         allowedHosts(cfg.Port),
 	}
+}
+
+// newNotificationsHandler は、通知の3つの API（一覧・見ていない数・見たにする）のハンドラーを組み立てる（価格の変動の通知のプラン 4.5）。
+func newNotificationsHandler(pool *pgxpool.Pool) *handler.NotificationsHandler {
+	reader := read.NewNotificationsReader(pool)
+	return handler.NewNotificationsHandler(
+		query.NewListNotifications(reader),
+		query.NewCountUnseenNotifications(reader),
+		command.NewMarkNotificationsSeen(write.NewNotificationRepository(pool)),
+	)
 }
 
 // allowedHosts は、/api/ 以下で受け付ける Host ヘッダーを返す（プラン 6章の判断12）。

@@ -19,12 +19,30 @@
   align-content: center;
 }
 
+/*
+ * 見出しの行。見出しの右端に headerActions（ベルのリンクなど）を置く。折り返しても、右の箱は右端に寄る。
+ * 行は grid の1つの項目として横いっぱいに伸びるので、右の箱の右端が一覧の右端にそろう。
+ */
+.holdings-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.holdings-page__actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-inline-start: auto;
+}
+
 .holdings-page__title {
   /*
-   * 幅を文字に合わせる（grid の既定では横いっぱいに伸びる）。取得失敗のダイアログを閉じた後に見出しへフォーカスを移したとき、
+   * 幅を文字に合わせる（行は flex なので、見出しは文字の幅になる）。取得失敗のダイアログを閉じた後に見出しへフォーカスを移したとき、
    * フォーカスの枠が画面の幅いっぱいの箱にならず、見出しの文字を囲むようにするため。
    */
-  justify-self: start;
+  min-width: 0;
   margin: 0;
   font-size: 1.75rem;
 }
